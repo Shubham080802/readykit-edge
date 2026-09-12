@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ReadyKit Edge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/console.css">
+</head>
+<body>
+<div class="shell">
+
+  <header class="masthead">
+    <div class="brand">
+      <span class="brand__mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4"
+             stroke-linecap="round" stroke-linejoin="round">
+          <rect x="4" y="10" width="16" height="11" rx="2"></rect>
+          <path d="M8 10V7a4 4 0 0 1 8 0v3"></path>
+        </svg>
+      </span>
+      <span>
+        <span class="brand__name">ReadyKit Edge</span>
+        <span class="brand__manifest" id="manifest-name">loading…</span>
+      </span>
+    </div>
+
+    <div class="masthead__right">
+      <span class="airgap" id="airgap">air-gapped · no network</span>
+    </div>
+  </header>
+
+  <section class="verdict" id="verdict" data-verdict="none" aria-live="polite">
+    <div class="verdict__head">
+      <h1 class="verdict__word" id="verdict-word">READY</h1>
+      <span class="verdict__latch" id="verdict-latch" data-latch="engaged">latch engaged</span>
+    </div>
+    <p class="verdict__reason" id="verdict-reason">
+      No inspection has run yet. The latch is in its safe resting state.
+    </p>
+    <div id="verdict-warn"></div>
+    <div class="verdict__meta" id="verdict-meta" hidden>
+      <span>engine <b id="m-engine">—</b></span>
+      <span>latency <b id="m-latency">—</b></span>
+      <span>frame <b id="m-frame">—</b></span>
+      <span>command <b id="m-command">—</b></span>
+    </div>
+  </section>
+
+  <div class="grid">
+
+    <section class="panel">
+      <h2 class="panel__title">
+        Manifest
+        <span class="panel__count" id="items-count"></span>
+      </h2>
+      <ul class="checklist" id="checklist"></ul>
+
+      <div class="rule">
+        <b>+</b> found · <b>&minus;</b> absent · <b>!</b> damaged ·
+        <b>?</b> unreadable or unreported.
+        A confidence below the manifest floor counts as unresolved, not as a
+        failure.
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2 class="panel__title">Actuator node</h2>
+
+      <div class="telemetry">
+        <div class="reading">
+          <span class="reading__name">Latch</span>
+          <span class="reading__value" id="t-latch">—</span>
+        </div>
+        <div class="reading">
+          <span class="reading__name">Indicator</span>
+          <span class="reading__value" id="t-indicator">—</span>
+        </div>
+        <div class="reading">
+          <span class="reading__name">Buzzer</span>
+          <span class="reading__value" id="t-buzzer">—</span>
+        </div>
+        <div class="reading">
+          <span class="reading__name">Host link</span>
+          <span class="reading__value" id="t-link">—</span>
+        </div>
+        <div class="reading">
+          <span class="reading__name">Last sequence</span>
+          <span class="reading__value" id="t-seq">—</span>
+        </div>
+      </div>
+
+      <div class="events" id="t-events"></div>
+
+      <h2 class="panel__title" style="margin-top:24px">Run an inspection</h2>
+      <div class="controls">
+        <select class="select" id="scene" aria-label="Simulator scene"></select>
+        <button class="btn btn--primary" id="run">Inspect</button>
+      </div>
+      <div class="rule" id="scene-description">&nbsp;</div>
+    </section>
+
+  </div>
+
+  <section class="panel ledger">
+    <h2 class="panel__title">Inspection records</h2>
+    <div class="tally" id="tally"></div>
+    <div class="scroll-x">
+      <table class="records">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Verdict</th>
+            <th>Reason</th>
+            <th>Commanded</th>
+            <th>ID</th>
+          </tr>
+        </thead>
+        <tbody id="records"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="records-empty">No inspections recorded yet.</div>
+  </section>
+
+  <p class="rule">
+    <b>Absence of evidence is not evidence of compliance.</b>
+    Only a PASS releases the latch, and PASS requires a positive, confident
+    finding for every critical item. An occluded lens, a crashed engine, a
+    dropped link, and an unparseable reply all resolve to INDETERMINATE, which
+    never opens anything.
+  </p>
+
+</div>
+<script src="/static/console.js"></script>
+</body>
+</html>

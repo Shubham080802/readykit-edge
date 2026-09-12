@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: pip install -e ".[dev,console]"
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Types
+        run: mypy
+
+      # Builds firmware/mcu_actuator/protocol.h against a stub Arduino.h and
+      # checks the MCU parser agrees with the Python encoder. The safety
+      # argument assumes these two implementations match; this is what
+      # enforces it.
+      - name: Tests
+        run: pytest -q

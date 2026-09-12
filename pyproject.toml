@@ -14,7 +14,7 @@ dependencies = []
 [project.optional-dependencies]
 host = ["opencv-python>=4.9", "numpy>=1.26", "pyserial>=3.5"]
 console = ["fastapi>=0.110", "uvicorn>=0.29"]
-dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.4", "mypy>=1.10"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.4", "mypy>=1.10", "httpx>=0.27"]
 
 [project.scripts]
 readykit = "readykit.cli:main"

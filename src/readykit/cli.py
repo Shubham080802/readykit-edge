@@ -71,6 +71,15 @@ def _build_parser() -> argparse.ArgumentParser:
     scenes = sub.add_parser("scenes", help="list simulator scenes")
     scenes.set_defaults(handler=_cmd_scenes)
 
+    console = sub.add_parser("console", help="serve the operator console")
+    console.add_argument("--manifest", type=Path, required=True)
+    console.add_argument("--host", default="127.0.0.1", help="loopback by default")
+    console.add_argument("--port", type=int, default=8420)
+    console.add_argument(
+        "--log", type=Path, default=Path("records/inspections.jsonl")
+    )
+    console.set_defaults(handler=_cmd_console)
+
     records = sub.add_parser("records", help="show recent inspection records")
     records.add_argument("--log", type=Path, default=Path("records/inspections.jsonl"))
     records.add_argument("--limit", type=int, default=20)
@@ -141,6 +150,36 @@ def _sleep_with_heartbeats(engine: InspectionEngine, seconds: float) -> None:
             return
         time.sleep(min(0.5, remaining))
         engine.heartbeat()
+
+
+def _cmd_console(args: argparse.Namespace) -> int:
+    try:
+        import uvicorn
+    except ImportError:
+        raise ValueError(
+            "the console needs the console extras: pip install -e \".[console]\""
+        ) from None
+
+    from .console import create_app
+
+    manifest = _load_manifest(args.manifest)
+    app = create_app(
+        manifest=manifest, log_path=args.log, link=open_link("loopback")
+    )
+
+    if args.host not in ("127.0.0.1", "localhost", "::1"):
+        # This device holds a latch open on command. Binding it to a routable
+        # interface turns a local view into a remote actuator.
+        print(
+            f"  warning: binding to {args.host} exposes the inspect endpoint "
+            "beyond this machine",
+            file=sys.stderr,
+        )
+
+    print(f"\n  {BOLD}ReadyKit Edge console{RESET}  {DIM}{manifest.name}{RESET}")
+    print(f"  {DIM}http://{args.host}:{args.port}{RESET}\n")
+    uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
+    return 0
 
 
 def _cmd_scenes(args: argparse.Namespace) -> int:

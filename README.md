@@ -73,6 +73,29 @@ flashing, and wiring.
 
 ---
 
+## The operator console
+
+```bash
+.venv/bin/pip install -e ".[console]"
+.venv/bin/readykit console --manifest manifests/trauma-kit-a.json
+# http://127.0.0.1:8420
+```
+
+Live verdict, per-item checklist, actuator telemetry (latch, indicator,
+buzzer, link freshness, last acknowledged sequence), and the audit trail.
+
+It binds to loopback deliberately: this device releases a physical latch on
+command, and binding it to a routable interface would turn a local view into a
+remote actuator.
+
+The latch pill in the banner always shows the latch **now**, never the latch at
+the moment of the verdict — a hold expires while the banner is still on screen,
+and nobody should read "released" over telemetry saying "engaged" before
+reaching into an enclosure.
+
+Visual language is [`DESIGN.md`](DESIGN.md), vendored from
+[VoltAgent/awesome-design-md](https://github.com/VoltAgent/awesome-design-md).
+
 ## Layout
 
 ```
@@ -84,8 +107,10 @@ src/readykit/
   bridge/          Host Link transports — pyserial and loopback
   engine.py        The inspection loop
   recorder.py      Append-only Inspection Records
+  console/         Operator console — FastAPI + static page
   cli.py
 firmware/mcu_actuator/   STM32U585 sketch — non-blocking, watchdogged
+firmware/test/           Cross-checks the C parser against the Python encoder
 manifests/               Kit specifications
 tests/
 ```
@@ -102,6 +127,18 @@ Visual language for the operator console is [`DESIGN.md`](DESIGN.md).
 .venv/bin/ruff check .
 .venv/bin/mypy
 ```
+
+## Status
+
+Runs end to end in simulation; every fail-closed path is covered by tests.
+**Not yet run on the hardware** — no Snapdragon X Elite or UNO Q on hand. The
+GenieX and pyserial backends are written against their documented interfaces
+and the C firmware parser is cross-checked against the Python encoder, but the
+on-device bring-up checklist in [`docs/deployment.md`](docs/deployment.md) has
+not been worked through. Treat it as unproven until it has.
+
+Known gaps, including `quantity` being carried but not enforced, are listed at
+the end of that document.
 
 ## License
 

@@ -1,0 +1,565 @@
+/*
+ * ReadyKit Edge operator console.
+ *
+ * Visual language: DESIGN.md at the repo root - Linear's system, vendored from
+ * VoltAgent/awesome-design-md, plus the verdict semantics defined in the
+ * ReadyKit extension section.
+ *
+ * Token names below map one-to-one onto that document.
+ */
+
+:root {
+  /* Surface ladder - canvas through surface-4, carrying hierarchy with no shadow */
+  --canvas: #010102;
+  --surface-1: #0f1011;
+  --surface-2: #141516;
+  --surface-3: #18191a;
+  --surface-4: #191a1b;
+
+  --hairline: #23252a;
+  --hairline-strong: #34343a;
+  --hairline-tertiary: #3e3e44;
+
+  --ink: #f7f8f8;
+  --ink-muted: #d0d6e0;
+  --ink-subtle: #8a8f98;
+  --ink-tertiary: #62666d;
+
+  --primary: #5e6ad2;
+  --primary-hover: #828fff;
+
+  /* ReadyKit extension: one colour per Verdict, used nowhere else */
+  --verdict-pass: #27a644;
+  --verdict-fail: #e5484d;
+  --verdict-hold: #e2a336;
+  --verdict-stale: #8a8f98;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  --space-xxs: 4px;
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+
+  --sans: "Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont,
+    system-ui, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo,
+    monospace;
+
+  color-scheme: dark;
+}
+
+/* The console is a fixed-purpose instrument on a dark canvas. It does not
+ * follow the viewer's theme - a light-mode wall display would wash out the
+ * verdict colours that the whole screen exists to communicate. */
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.5;
+  letter-spacing: -0.05px;
+  -webkit-font-smoothing: antialiased;
+}
+
+body { min-height: 100vh; }
+
+.shell {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: var(--space-lg) var(--space-md) var(--space-xl);
+}
+
+/* ------------------------------------------------------------------ header */
+
+.masthead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  padding-bottom: var(--space-md);
+  border-bottom: 1px solid var(--hairline);
+  margin-bottom: var(--space-lg);
+}
+
+.brand { display: flex; align-items: center; gap: var(--space-sm); }
+
+.brand__mark {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  background: var(--primary);
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+.brand__mark svg { width: 15px; height: 15px; display: block; }
+
+.brand__name {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+
+.brand__manifest {
+  font-size: 13px;
+  color: var(--ink-subtle);
+  font-weight: 400;
+}
+
+.masthead__right { display: flex; align-items: center; gap: var(--space-sm); }
+
+/* Eyebrow: positive tracking, per the design language - it marks taxonomy
+ * against the negative-tracked display type. */
+.eyebrow {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.4px;
+  color: var(--ink-subtle);
+  text-transform: uppercase;
+}
+
+/* ------------------------------------------------------------- air-gap pill */
+
+.airgap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 9999px;
+  font-size: 12px;
+  color: var(--ink-subtle);
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+
+.airgap::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--verdict-pass);
+  flex: none;
+}
+
+/* ----------------------------------------------------------------- verdict */
+
+.verdict {
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-xl);
+  background: var(--surface-1);
+  padding: var(--space-lg);
+  margin-bottom: var(--space-lg);
+  transition: border-color 160ms ease, background-color 160ms ease;
+}
+
+.verdict[data-verdict="pass"] {
+  border-color: color-mix(in srgb, var(--verdict-pass) 30%, transparent);
+  background: color-mix(in srgb, var(--verdict-pass) 7%, var(--surface-1));
+}
+.verdict[data-verdict="fail"] {
+  border-color: color-mix(in srgb, var(--verdict-fail) 30%, transparent);
+  background: color-mix(in srgb, var(--verdict-fail) 7%, var(--surface-1));
+}
+.verdict[data-verdict="indeterminate"] {
+  border-color: color-mix(in srgb, var(--verdict-hold) 30%, transparent);
+  background: color-mix(in srgb, var(--verdict-hold) 7%, var(--surface-1));
+}
+
+.verdict__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+/* display-md: 40px / 600 / -1.0px tracking */
+.verdict__word {
+  font-size: 40px;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -1px;
+  margin: 0;
+  color: var(--ink-subtle);
+}
+
+.verdict[data-verdict="pass"] .verdict__word { color: var(--verdict-pass); }
+.verdict[data-verdict="fail"] .verdict__word { color: var(--verdict-fail); }
+.verdict[data-verdict="indeterminate"] .verdict__word { color: var(--verdict-hold); }
+
+.verdict__latch {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--ink-subtle);
+  padding: 4px 10px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 9999px;
+  white-space: nowrap;
+}
+
+.verdict__latch[data-latch="released"] {
+  color: var(--verdict-pass);
+  border-color: color-mix(in srgb, var(--verdict-pass) 40%, transparent);
+}
+
+.verdict__reason {
+  margin: var(--space-sm) 0 0;
+  font-size: 18px;
+  line-height: 1.5;
+  letter-spacing: -0.1px;
+  color: var(--ink-muted);
+}
+
+.verdict__meta {
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--hairline);
+  display: flex;
+  gap: var(--space-lg);
+  flex-wrap: wrap;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-tertiary);
+}
+
+.verdict__meta b { color: var(--ink-subtle); font-weight: 400; }
+
+.warn {
+  margin-top: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--verdict-fail) 40%, transparent);
+  background: color-mix(in srgb, var(--verdict-fail) 10%, transparent);
+  color: var(--ink);
+  font-size: 14px;
+}
+
+/* -------------------------------------------------------------------- grid */
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: var(--space-lg);
+  align-items: start;
+}
+
+.panel {
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  padding: var(--space-lg);
+  min-width: 0;
+}
+
+.panel__title {
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.25;
+  letter-spacing: -0.4px;
+  margin: 0 0 var(--space-md);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.panel__count { font-family: var(--mono); font-size: 12px; color: var(--ink-tertiary); }
+
+/* --------------------------------------------------------------- checklist */
+
+.checklist { list-style: none; margin: 0; padding: 0; }
+
+.item {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 10px var(--space-sm);
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+}
+
+.item + .item { margin-top: 2px; }
+
+.item[data-blamed="true"] {
+  border-color: color-mix(in srgb, var(--verdict-fail) 35%, transparent);
+  background: color-mix(in srgb, var(--verdict-fail) 9%, transparent);
+}
+
+.item[data-unresolved="true"] {
+  border-color: color-mix(in srgb, var(--verdict-hold) 30%, transparent);
+  background: color-mix(in srgb, var(--verdict-hold) 7%, transparent);
+}
+
+/* The glyph is not decorative. Colour is never the only signal for a state -
+ * an operator with a colour vision deficiency reads this column and the
+ * presence label instead. */
+.item__glyph {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--ink-tertiary);
+}
+
+.item[data-presence="found"] .item__glyph { color: var(--verdict-pass); }
+.item[data-presence="absent"] .item__glyph { color: var(--verdict-fail); }
+.item[data-presence="damaged"] .item__glyph { color: var(--verdict-fail); }
+.item[data-presence="unreadable"] .item__glyph,
+.item[data-presence="unreported"] .item__glyph { color: var(--verdict-hold); }
+
+.item__label {
+  font-size: 14px;
+  color: var(--ink);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item__label small {
+  color: var(--ink-tertiary);
+  font-size: 12px;
+  margin-left: 6px;
+}
+
+.item__presence {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-subtle);
+  text-align: right;
+}
+
+/* Tabular numerals: confidences are read down a column and compared. */
+.item__confidence {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-subtle);
+  min-width: 62px;
+  text-align: right;
+}
+
+.item__confidence[data-below-floor="true"] { color: var(--verdict-hold); }
+.item__confidence[data-none="true"] { color: var(--ink-tertiary); }
+
+/* --------------------------------------------------------------- telemetry */
+
+.telemetry { display: grid; gap: var(--space-xs); }
+
+.reading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: 9px var(--space-sm);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+}
+
+.reading__name {
+  font-size: 13px;
+  color: var(--ink-subtle);
+}
+
+.reading__value {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--ink);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reading__value[data-tone="pass"] { color: var(--verdict-pass); }
+.reading__value[data-tone="fail"] { color: var(--verdict-fail); }
+.reading__value[data-tone="hold"] { color: var(--verdict-hold); }
+.reading__value[data-tone="stale"] { color: var(--verdict-stale); }
+
+.events {
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--hairline);
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-tertiary);
+  display: grid;
+  gap: 3px;
+  max-height: 132px;
+  overflow-y: auto;
+}
+
+/* ----------------------------------------------------------------- controls */
+
+.controls {
+  display: flex;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.btn {
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.2;
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--hairline-strong);
+  background: var(--surface-2);
+  color: var(--ink);
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.btn:hover:not(:disabled) { background: var(--surface-3); }
+
+.btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* The single chromatic accent, on the one action that matters. */
+.btn--primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.btn--primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+}
+
+.select {
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--hairline-strong);
+  background: var(--surface-2);
+  color: var(--ink);
+  cursor: pointer;
+  max-width: 260px;
+}
+
+.select:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* ------------------------------------------------------------------ ledger */
+
+.ledger { margin-top: var(--space-lg); }
+
+.tally {
+  display: flex;
+  gap: var(--space-lg);
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-tertiary);
+  margin-bottom: var(--space-md);
+}
+
+.tally b { font-weight: 400; }
+.tally .t-pass b { color: var(--verdict-pass); }
+.tally .t-fail b { color: var(--verdict-fail); }
+.tally .t-hold b { color: var(--verdict-hold); }
+
+.records { width: 100%; border-collapse: collapse; font-size: 13px; }
+
+.records th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--ink-tertiary);
+  padding: 0 var(--space-sm) var(--space-xs);
+  border-bottom: 1px solid var(--hairline);
+  white-space: nowrap;
+}
+
+.records td {
+  padding: 9px var(--space-sm);
+  border-bottom: 1px solid var(--hairline);
+  color: var(--ink-muted);
+  vertical-align: top;
+}
+
+.records tr:last-child td { border-bottom: none; }
+
+.records .c-time,
+.records .c-id { font-family: var(--mono); font-size: 12px; color: var(--ink-tertiary); white-space: nowrap; }
+
+.records .c-reason { color: var(--ink-muted); }
+
+.tag {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  padding: 3px 8px;
+  border-radius: 9999px;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+
+.tag[data-verdict="pass"] { color: var(--verdict-pass); }
+.tag[data-verdict="fail"] { color: var(--verdict-fail); }
+.tag[data-verdict="indeterminate"] { color: var(--verdict-hold); }
+
+.empty {
+  color: var(--ink-tertiary);
+  font-size: 14px;
+  padding: var(--space-lg) 0;
+  text-align: center;
+}
+
+.scroll-x { overflow-x: auto; }
+
+/* ------------------------------------------------------------------- rules */
+
+.rule {
+  margin-top: var(--space-xl);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--hairline);
+  font-size: 13px;
+  color: var(--ink-tertiary);
+  line-height: 1.6;
+}
+
+.rule b { color: var(--ink-subtle); font-weight: 500; }
+
+/* ------------------------------------------------------------ responsive */
+
+@media (max-width: 900px) {
+  .grid { grid-template-columns: minmax(0, 1fr); }
+  .verdict__word { font-size: 32px; letter-spacing: -0.8px; }
+}
+
+@media (max-width: 560px) {
+  .shell { padding: var(--space-md) var(--space-md) var(--space-xl); }
+  .verdict { padding: var(--space-md); }
+  .panel { padding: var(--space-md); }
+  .verdict__word { font-size: 28px; }
+  .item { grid-template-columns: 20px minmax(0, 1fr) auto; }
+  .item__presence { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
