@@ -1,0 +1,14 @@
+{
+  "manifest_id": "electrical-toolbox",
+  "name": "Electrical Maintenance Toolbox",
+  "confidence_floor": 0.55,
+  "hold_seconds": 8.0,
+  "items": [
+    { "key": "multimeter",    "label": "Digital Multimeter",   "severity": "critical" },
+    { "key": "safety_glasses","label": "Safety Glasses",       "severity": "critical" },
+    { "key": "hardhat",       "label": "Hard Hat",             "severity": "critical" },
+    { "key": "insulated_pliers", "label": "Insulated Pliers",  "severity": "critical" },
+    { "key": "voltage_tester","label": "Non-Contact Tester",   "severity": "critical" },
+    { "key": "spare_fuse",    "label": "Spare Fuses",          "severity": "advisory", "quantity": 4 }
+  ]
+}

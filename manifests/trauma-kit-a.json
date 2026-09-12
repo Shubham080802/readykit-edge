@@ -1,0 +1,15 @@
+{
+  "manifest_id": "trauma-kit-a",
+  "name": "Field Trauma Kit A",
+  "confidence_floor": 0.6,
+  "hold_seconds": 5.0,
+  "items": [
+    { "key": "tourniquet",   "label": "Windlass Tourniquet",     "severity": "critical", "quantity": 2 },
+    { "key": "chest_seal",   "label": "Vented Chest Seal",       "severity": "critical", "quantity": 2 },
+    { "key": "shears",       "label": "Trauma Shears",           "severity": "critical" },
+    { "key": "gauze",        "label": "Hemostatic Gauze",        "severity": "critical" },
+    { "key": "npa",          "label": "Nasopharyngeal Airway",   "severity": "critical" },
+    { "key": "gloves",       "label": "Nitrile Gloves",          "severity": "advisory", "quantity": 2 },
+    { "key": "marker",       "label": "Triage Marker",           "severity": "advisory" }
+  ]
+}
