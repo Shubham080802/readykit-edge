@@ -131,11 +131,19 @@ Visual language for the operator console is [`DESIGN.md`](DESIGN.md).
 ## Status
 
 Runs end to end in simulation; every fail-closed path is covered by tests.
-**Not yet run on the hardware** — no Snapdragon X Elite or UNO Q on hand. The
-GenieX and pyserial backends are written against their documented interfaces
-and the C firmware parser is cross-checked against the Python encoder, but the
-on-device bring-up checklist in [`docs/deployment.md`](docs/deployment.md) has
-not been worked through. Treat it as unproven until it has.
+
+**Not yet run on the hardware.** The GenieX and pyserial backends are written
+against their documented interfaces, and the C firmware parser is cross-checked
+against the Python encoder by a test that compiles it — but nothing here has
+driven a real solenoid. Treat the on-device behaviour as unproven until the
+[bring-up checklist](docs/deployment.md#bring-up-checklist) has been worked
+through.
+
+That checklist is the point of building the simulator first. Every item on it
+is a behaviour already pinned by a test, so bench time goes on confirming the
+hardware agrees rather than discovering what the hardware does. The item that
+matters most is the cloth-over-the-tray one: if a covered kit ever passes, stop
+and raise the confidence floor.
 
 Known gaps, including `quantity` being carried but not enforced, are listed at
 the end of that document.

@@ -4,24 +4,55 @@ Taking ReadyKit Edge from a laptop simulation to a Snapdragon X Elite host
 driving a real solenoid on an Arduino UNO Q.
 
 Everything in this document has been designed and unit-tested but **not yet
-run on the hardware** — see [Bring-up checklist](#bring-up-checklist), which is
-written to be worked through the first time the boards are on the bench.
+run on the hardware**. The [bring-up checklist](#bring-up-checklist) is written
+to be worked through in one sitting the first time the boards are on the bench
+— every item on it is a behaviour the simulator already pins, so it confirms
+the hardware agrees rather than discovering the behaviour from scratch.
 
 ---
 
 ## 1. Export a model
 
-The engine expects a vision-language model quantised for the Hexagon NPU.
+The engine expects a vision-language model quantised for the Hexagon NPU, and
+deploys it through **GenieX**. Two supported sources:
+
+### Option A — Qualcomm AI Hub Models (fastest)
 
 1. Sign in to [Qualcomm AI Hub](https://aihub.qualcomm.com/) and pick a VLM
    that can answer structured questions about an image. Qwen2-VL is the usual
-   starting point; a detection model like YOLOv8/v10 works too if you replace
-   `GenieXEngine` with a detector that emits the same `Sighting` list.
+   starting point.
 2. Compile it for **Snapdragon X Elite**, targeting the Hexagon NPU.
 3. Download the `.qnn` artifact into `models/`.
 
-`models/*.qnn` is gitignored — these are large binaries under Qualcomm's own
-licence and do not belong in this repository.
+Pre-optimised targets need no quantisation work of your own, so this is the
+path to take when bench time is short.
+
+### Option B — Hugging Face
+
+A checkpoint from the Hub has to be converted before the NPU will run it:
+
+1. Pull the checkpoint (e.g. `Qwen/Qwen2-VL-2B-Instruct`).
+2. Export to ONNX, then compile through the **Qualcomm AI Engine Direct SDK**
+   (`qnn-onnx-converter` → `qnn-model-lib-generator`) for Snapdragon X Elite.
+3. Quantise to INT8/INT16 with a calibration set of **real frames of the
+   actual kits**, not stock imagery — calibrating on the wrong distribution is
+   what pushes borderline confidences across the floor in the wrong direction.
+4. Drop the result into `models/`.
+
+Budget real time for this. If the conversion fights back, fall back to Option A
+and revisit.
+
+### Either way
+
+`models/*.qnn` is gitignored — large binaries under Qualcomm's own licence,
+which do not belong in this repository.
+
+Nothing above changes any code. `GenieXEngine` takes `--model path/to.qnn` and
+does not care where the weights came from; a detection model like YOLOv8/v10
+works too, provided you swap in a detector that emits the same `Sighting` list.
+That is the point of the engine interface — the model is a swappable part, and
+the safety rule sits downstream of it in `resolve_verdict` where no model can
+reach.
 
 ### What the model is asked
 
