@@ -70,8 +70,8 @@ class CameraSource(FrameSource):
                 'pip install -e ".[host]"'
             ) from exc
 
-        self._cv2 = cv2
-        self._capture = cv2.VideoCapture(index)
+        self._cv2: Any = cv2
+        self._capture: Any = cv2.VideoCapture(index)
         if not self._capture.isOpened():
             raise CaptureError(f"could not open camera at index {index}")
 
@@ -97,7 +97,7 @@ class CameraSource(FrameSource):
     def close(self) -> None:
         if getattr(self, "_capture", None) is not None:
             self._capture.release()
-            self._capture = None  # type: ignore[assignment]
+            self._capture = None
 
 
 class ImageFileSource(FrameSource):

@@ -39,3 +39,12 @@ python_version = "3.11"
 strict = true
 mypy_path = "src"
 files = ["src", "tests"]
+
+# Optional hardware dependencies with no published stubs. `geniex` ships with
+# the Qualcomm AI Engine Direct SDK and exists only on the Snapdragon host, so
+# it is unresolvable anywhere else by design - including in CI. Each is
+# imported inside a try/except that raises a typed domain error, and the
+# handle is held as Any.
+[[tool.mypy.overrides]]
+module = ["cv2", "serial", "geniex"]
+ignore_missing_imports = true

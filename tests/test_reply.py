@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from readykit.domain import Manifest, Presence, RequiredItem
+from readykit.domain import Manifest, Presence, RequiredItem, Sighting
 from readykit.reply import ReplyParseError, build_prompt, parse_reply
 
 KIT = Manifest(
@@ -25,7 +25,7 @@ KIT = Manifest(
 )
 
 
-def by_key(sightings: list) -> dict:
+def by_key(sightings: list[Sighting]) -> dict[str, Sighting]:
     return {s.key: s for s in sightings}
 
 

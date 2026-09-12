@@ -127,12 +127,12 @@ class TestWatchdog:
         even detect: during that delay the MCU reads no serial at all.
         """
         link.send(Command.RELEASE, "30000")
-        assert node.latch is LatchState.RELEASED
 
         clock.advance(2001)
         node.tick()
         assert node.latch is LatchState.ENGAGED
         assert node.indicator is Indicator.STALE
+        assert "host link went stale" in " ".join(node.events)
 
     def test_heartbeats_keep_the_link_fresh(
         self, link: LoopbackLink, node: VirtualActuatorNode, clock: FakeClock

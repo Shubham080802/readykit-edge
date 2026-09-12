@@ -116,13 +116,15 @@ class Manifest:
     def from_mapping(cls, raw: Mapping[str, object]) -> Manifest:
         """Build a Manifest from parsed JSON. Raises ValueError on bad input."""
         try:
-            raw_items: Sequence[Mapping[str, object]] = raw["items"]  # type: ignore[assignment]
+            raw_items = raw["items"]
+            if not isinstance(raw_items, list):
+                raise ValueError("'items' must be a list")
             items = tuple(
                 RequiredItem(
                     key=str(entry["key"]),
                     label=str(entry["label"]),
                     severity=Severity(str(entry.get("severity", "critical"))),
-                    quantity=int(entry.get("quantity", 1)),  # type: ignore[arg-type]
+                    quantity=_as_int(entry.get("quantity", 1)),
                 )
                 for entry in raw_items
             )
@@ -130,8 +132,8 @@ class Manifest:
                 manifest_id=str(raw["manifest_id"]),
                 name=str(raw["name"]),
                 items=items,
-                confidence_floor=float(raw.get("confidence_floor", 0.55)),  # type: ignore[arg-type]
-                hold_seconds=float(raw.get("hold_seconds", 5.0)),  # type: ignore[arg-type]
+                confidence_floor=_as_float(raw.get("confidence_floor", 0.55)),
+                hold_seconds=_as_float(raw.get("hold_seconds", 5.0)),
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError(f"Malformed manifest: {exc}") from exc
@@ -145,6 +147,18 @@ class Manifest:
         if not isinstance(raw, dict):
             raise ValueError("Manifest JSON must be an object")
         return cls.from_mapping(raw)
+
+
+def _as_int(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise ValueError(f"expected a number, got {value!r}")
+    return int(value)
+
+
+def _as_float(value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise ValueError(f"expected a number, got {value!r}")
+    return float(value)
 
 
 @dataclass(frozen=True, slots=True)
@@ -255,26 +269,26 @@ def resolve_verdict(manifest: Manifest, sightings: Iterable[Sighting]) -> Resolu
     advisories: list[str] = []
 
     for item in manifest.items:
-        sighting = by_key.get(item.key)
+        found = by_key.get(item.key)
 
-        if sighting is None:
+        if found is None:
             unresolved.append(item.key)
             continue
 
-        if sighting.presence is Presence.UNREADABLE:
+        if found.presence is Presence.UNREADABLE:
             unresolved.append(item.key)
             continue
 
-        if sighting.confidence < manifest.confidence_floor:
+        if found.confidence < manifest.confidence_floor:
             # Low-confidence ABSENT is not a failure - it is a bad look at the
             # kit. Ask again rather than accusing the operator.
             unresolved.append(item.key)
             continue
 
-        if sighting.presence is Presence.FOUND:
+        if found.presence is Presence.FOUND:
             continue
 
-        bucket = missing if sighting.presence is Presence.ABSENT else damaged
+        bucket = missing if found.presence is Presence.ABSENT else damaged
         if item.severity is Severity.CRITICAL:
             bucket.append(item.key)
         else:

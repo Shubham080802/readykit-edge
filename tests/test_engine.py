@@ -13,7 +13,7 @@ import pytest
 from readykit.bridge import LoopbackLink, VirtualActuatorNode
 from readykit.bridge.loopback import LatchState
 from readykit.capture import CaptureError, Frame, FrameSource, ScriptedSource
-from readykit.domain import Manifest, RequiredItem, Verdict
+from readykit.domain import Manifest, RequiredItem, Sighting, Verdict
 from readykit.engine import InspectionEngine
 from readykit.inference.base import InferenceEngine, InferenceError
 from readykit.inference.simulated import SimulatedEngine
@@ -46,7 +46,7 @@ class BrokenSource(FrameSource):
 class ExplodingEngine(InferenceEngine):
     name = "exploding"
 
-    def infer(self, frame: Frame, manifest: Manifest) -> list:
+    def infer(self, frame: Frame, manifest: Manifest) -> list[Sighting]:
         raise ZeroDivisionError("something nobody anticipated")
 
 

@@ -19,7 +19,7 @@ from .capture import CameraSource, CaptureError, FrameSource, ScriptedSource
 from .domain import Manifest, Verdict
 from .engine import InspectionEngine, InspectionOutcome
 from .inference import load_engine
-from .inference.base import InferenceError
+from .inference.base import InferenceEngine, InferenceError
 from .inference.simulated import SimulatedEngine
 from .recorder import InspectionLog
 
@@ -242,7 +242,7 @@ def _build_source(args: argparse.Namespace) -> FrameSource:
     return ScriptedSource(args.scene)
 
 
-def _build_inference(args: argparse.Namespace):
+def _build_inference(args: argparse.Namespace) -> InferenceEngine:
     if args.engine == "geniex":
         if args.model is None:
             raise ValueError("--engine geniex requires --model path/to/model.qnn")

@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 from .domain import InspectionRecord
 
@@ -31,13 +32,13 @@ class InspectionLog:
             handle.write(record.to_json_line() + "\n")
             handle.flush()
 
-    def read(self, limit: int | None = None) -> list[dict]:
+    def read(self, limit: int | None = None) -> list[dict[str, Any]]:
         """Most recent first. Malformed trailing lines are skipped, not fatal."""
-        rows = list(self._iter_rows())
+        rows: list[dict[str, Any]] = list(self._iter_rows())
         rows.reverse()
         return rows[:limit] if limit is not None else rows
 
-    def _iter_rows(self) -> Iterator[dict]:
+    def _iter_rows(self) -> Iterator[dict[str, Any]]:
         if not self.path.exists():
             return
         with self.path.open(encoding="utf-8") as handle:
