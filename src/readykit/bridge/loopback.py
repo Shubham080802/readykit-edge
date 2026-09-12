@@ -126,6 +126,12 @@ class VirtualActuatorNode:
 
     def _apply(self, frame: CommandFrame) -> AckStatus:
         if frame.command is Command.PING:
+            # Contact alone is the point. Clearing STALE here matters: without
+            # it the node reports a stale indicator over a live link, which
+            # contradicts itself on the operator's screen. The firmware does
+            # the same in applyCommand().
+            if self.indicator is Indicator.STALE:
+                self.indicator = Indicator.OFF
             return AckStatus.OK
 
         if frame.command is Command.RESET:

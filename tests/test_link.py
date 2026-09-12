@@ -143,6 +143,35 @@ class TestWatchdog:
             link.send(Command.PING)
         assert node.latch is LatchState.RELEASED
 
+    def test_a_heartbeat_clears_a_stale_indicator(
+        self, link: LoopbackLink, node: VirtualActuatorNode, clock: FakeClock
+    ) -> None:
+        """A live link must not still be showing STALE.
+
+        Caught by looking at the console: it reported indicator "stale" beside
+        host link "live", which contradicts itself in front of an operator.
+        The firmware already cleared this in applyCommand(); the twin did not.
+        Exactly the drift the twin exists to prevent, so it is pinned here.
+        """
+        clock.advance(3000)
+        node.tick()
+        # Compared by value: `is` here would narrow the attribute and hide the
+        # change the PING below makes from the type checker.
+        assert node.indicator.value == "stale"
+
+        link.send(Command.PING)
+        assert node.indicator is Indicator.OFF
+        assert not node.link_is_stale
+
+    def test_a_heartbeat_does_not_clear_a_real_verdict_indicator(
+        self, link: LoopbackLink, node: VirtualActuatorNode
+    ) -> None:
+        """Only STALE is cleared. A heartbeat must not silence a failure the
+        operator has not dealt with yet."""
+        link.send(Command.REJECT, "missing shears")
+        link.send(Command.PING)
+        assert node.indicator is Indicator.FAIL
+
     def test_corrupt_traffic_does_not_satisfy_the_watchdog(
         self, node: VirtualActuatorNode, clock: FakeClock
     ) -> None:

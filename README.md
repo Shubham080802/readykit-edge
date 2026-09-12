@@ -35,6 +35,50 @@ as a pass — releasing the latch on a kit nobody has actually seen. Meanwhile
 `"No items are missing"` contains both and is read as a failure. See
 [`tests/test_verdict.py`](tests/test_verdict.py), which pins both cases.
 
+## Run the original design beside it
+
+That claim is checkable rather than rhetorical. [`src/readykit/naive.py`](src/readykit/naive.py)
+is the original substring matcher, preserved and executable, and every
+inspection replays it against the **same verbatim model reply** before
+recording what it would have done:
+
+```bash
+.venv/bin/readykit compare --manifest manifests/trauma-kit-a.json
+```
+
+```
+scene                   blueprint           readykit        divergence
+--------------------------------------------------------------------------
+complete                PASS_KIT            pass            agreed
+complete-negated        ERR_MISSING_TOOL    pass            rejects a good kit
+empty                   ERR_MISSING_TOOL    fail            agreed
+garbled                 PASS_KIT            indeterminate   UNLOCKS A BAD KIT
+occluded                PASS_KIT            indeterminate   UNLOCKS A BAD KIT
+missing-shears          PASS_KIT            fail            UNLOCKS A BAD KIT
+...
+8 of 14 scenes would have released the latch under the original design.
+```
+
+The sharpest one is `missing-shears`. The model correctly reports the shears
+are gone — it just phrases it as *"Absent from the tray"*. No `"missing"`, no
+`"no"`, so the original design writes `PASS_KIT` and opens a trauma kit with no
+trauma shears in it.
+
+Two things keep this honest rather than a strawman:
+
+- **The blueprint gets some right.** It handles `complete` and `empty`
+  correctly, and it rejects *"Sorry, I could not process that image"* — because
+  `"could not"` happens to contain `"no"`. Correct, and entirely by accident.
+  [`tests/test_naive.py`](tests/test_naive.py) pins that case deliberately.
+- **Both parsers read the same string.** The simulator emits realistic model
+  output — prose narration plus a JSON block, which is what instruction-tuned
+  VLMs actually produce — and that text goes through the production parser.
+  The console shows the verbatim line the substring match ran against.
+
+The replay is recorded and displayed, never enacted. `naive.py` cannot reach
+the Host Link, and a test asserts the latch stays engaged on an `unsafe`
+divergence.
+
 ---
 
 ## Running it without the hardware

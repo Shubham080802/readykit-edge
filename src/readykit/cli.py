@@ -21,6 +21,7 @@ from .engine import InspectionEngine, InspectionOutcome
 from .inference import load_engine
 from .inference.base import InferenceEngine, InferenceError
 from .inference.simulated import SimulatedEngine
+from .naive import Divergence
 from .recorder import InspectionLog
 
 RESET = "\033[0m"
@@ -79,6 +80,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--log", type=Path, default=Path("records/inspections.jsonl")
     )
     console.set_defaults(handler=_cmd_console)
+
+    compare_cmd = sub.add_parser(
+        "compare", help="replay every scene against the original blueprint's logic"
+    )
+    compare_cmd.add_argument("--manifest", type=Path, required=True)
+    compare_cmd.set_defaults(handler=_cmd_compare)
 
     records = sub.add_parser("records", help="show recent inspection records")
     records.add_argument("--log", type=Path, default=Path("records/inspections.jsonl"))
@@ -282,12 +289,99 @@ def _render(outcome: InspectionOutcome, engine: InspectionEngine) -> None:
             f"{sighting.confidence:.2f}{RESET}{note}"
         )
 
+    _render_comparison(outcome)
+
     if not outcome.enacted and outcome.link_result is not None:
         print(f"  {DIM}! {outcome.record.commanded}{RESET}")
     print(
         f"  {DIM}{outcome.record.engine} · {outcome.record.latency_ms:.0f}ms · "
         f"frame {outcome.record.frame_digest}{RESET}"
     )
+
+
+def _render_comparison(outcome: InspectionOutcome) -> None:
+    """Show what the original blueprint would have done with the same reply."""
+    comparison = outcome.comparison
+    if comparison is None:
+        return
+
+    if comparison.divergence is Divergence.UNSAFE:
+        colour = "\033[38;5;203m"
+        headline = "the original blueprint would have RELEASED the latch here"
+    elif comparison.divergence is Divergence.SPURIOUS:
+        colour = "\033[38;5;221m"
+        headline = "the original blueprint would have rejected this kit"
+    else:
+        colour = DIM
+        headline = "the original blueprint would have reached the same decision"
+
+    print(f"  {colour}vs blueprint{RESET} {DIM}{headline}{RESET}")
+    print(
+        f"    {DIM}its parser saw{RESET} "
+        f"{colour}{comparison.signal}{RESET}"
+        f"{DIM} from: {_excerpt(outcome.record.raw_reply)}{RESET}"
+    )
+
+
+def _excerpt(raw: str, limit: int = 88) -> str:
+    """First line of the model's reply - the part the substring matcher hits."""
+    first = raw.strip().splitlines()[0] if raw.strip() else "(empty reply)"
+    return first if len(first) <= limit else first[: limit - 1] + "\u2026"
+
+
+def _cmd_compare(args: argparse.Namespace) -> int:
+    """Replay every scene and tabulate where the two logics disagree."""
+    manifest = _load_manifest(args.manifest)
+    scenes = [*sorted(SimulatedEngine.scenes()), *(
+        f"missing-{item.key}" for item in manifest.items
+    )]
+
+    rows: list[tuple[str, str, str, Divergence | None]] = []
+    for scene in scenes:
+        engine = InspectionEngine(
+            manifest=manifest,
+            source=ScriptedSource(scene),
+            engine=load_engine("simulated"),
+            link=None,
+        )
+        outcome = engine.run_once()
+        rows.append(
+            (
+                scene,
+                outcome.record.blueprint_signal or "(no output)",
+                outcome.verdict.value,
+                outcome.comparison.divergence if outcome.comparison else None,
+            )
+        )
+
+    print(f"\n  {BOLD}{manifest.name}{RESET}  {DIM}{len(rows)} scenes{RESET}\n")
+    print(
+        f"  {DIM}{'scene':<24}{'blueprint':<20}{'readykit':<16}"
+        f"{'divergence'}{RESET}"
+    )
+    print(f"  {DIM}{'-' * 74}{RESET}")
+
+    unsafe = 0
+    for scene, signal, verdict, divergence in rows:
+        if divergence is Divergence.UNSAFE:
+            unsafe += 1
+            colour, label = "\033[38;5;203m", "UNLOCKS A BAD KIT"
+        elif divergence is Divergence.SPURIOUS:
+            colour, label = "\033[38;5;221m", "rejects a good kit"
+        elif divergence is Divergence.AGREED:
+            colour, label = DIM, "agreed"
+        else:
+            colour, label = DIM, "not comparable"
+        print(
+            f"  {scene:<24}{DIM}{signal:<20}{RESET}{verdict:<16}"
+            f"{colour}{label}{RESET}"
+        )
+
+    print(
+        f"\n  {BOLD}{unsafe} of {len(rows)}{RESET} scenes would have released "
+        f"the latch under the original design.\n"
+    )
+    return 0
 
 
 if __name__ == "__main__":

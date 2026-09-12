@@ -153,6 +153,7 @@ def create_app(
                 "scene": state.scene,
                 "telemetry": _telemetry(state.node),
                 "tally": state.log.tally(),
+                "blueprint_tally": _blueprint_tally(state.log),
             }
 
     @app.get("/api/records")
@@ -202,7 +203,33 @@ def _serialise(outcome: Any, manifest: Manifest) -> dict[str, Any]:
             "released" if resolution.verdict is Verdict.PASS and outcome.enacted
             else "engaged"
         ),
+        "raw_reply": record.raw_reply,
+        "blueprint": _blueprint(outcome),
     }
+
+
+def _blueprint(outcome: Any) -> dict[str, Any] | None:
+    """What the original design would have done with this same model reply."""
+    comparison = outcome.comparison
+    if comparison is None:
+        return None
+    return {
+        "signal": comparison.signal,
+        "unlocks": comparison.blueprint_unlocks,
+        "divergence": comparison.divergence.value,
+        "reason": comparison.reason,
+    }
+
+
+def _blueprint_tally(log: InspectionLog) -> dict[str, int]:
+    """How often the original design would have opened an enclosure it
+    should not have, across everything recorded so far."""
+    counts = {"agreed": 0, "unsafe": 0, "spurious": 0, "not_comparable": 0}
+    for row in log.read():
+        divergence = row.get("blueprint_divergence") or "not_comparable"
+        if divergence in counts:
+            counts[divergence] += 1
+    return counts
 
 
 def _telemetry(node: VirtualActuatorNode | None) -> dict[str, Any]:

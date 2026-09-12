@@ -3,21 +3,36 @@
 This is not a toy. It exists to exercise the paths that are hardest to produce
 on demand with real hardware and that matter most: an occluded lens, a model
 that returns prose, a model that omits an item, a model that is confidently
-wrong. Those are the scenarios the safety rule is built for, and they should
-be reachable from a laptop.
+wrong.
 
-Scenes are deterministic by default so tests and demos are reproducible.
+Scenes emit **realistic raw model output** - a prose narration followed by a
+JSON block, which is what instruction-tuned VLMs actually do - and that text is
+then run through the real `readykit.reply.parse_reply`. Two consequences worth
+knowing:
+
+* The simulated path exercises the production parser rather than bypassing it,
+  so a parser bug shows up in simulation.
+* `readykit.naive` can be replayed against genuine model text, which is what
+  makes the comparison against the original blueprint honest rather than a
+  strawman. The prose is written the way a model actually phrases these
+  findings, not the way that would most embarrass the blueprint - and on two
+  scenes the blueprint accordingly gets the right answer.
+
+Scenes are deterministic so demos and tests are reproducible.
 """
 
 from __future__ import annotations
 
+import json
 import random
 
 from ..capture import Frame
-from ..domain import Manifest, Presence, Sighting
-from .base import InferenceEngine, InferenceError
+from ..domain import Manifest, Presence
+from ..reply import ReplyParseError, parse_reply
+from .base import InferenceEngine, InferenceError, Observation
 
 COMPLETE = "complete"
+COMPLETE_NEGATED = "complete-negated"
 OCCLUDED = "occluded"
 EMPTY = "empty"
 LOW_CONFIDENCE = "low-confidence"
@@ -26,7 +41,8 @@ ENGINE_FAULT = "engine-fault"
 
 _BUILTIN_SCENES = {
     COMPLETE: "every required item present and clearly visible",
-    OCCLUDED: "the tray is partially covered - nothing can be confirmed",
+    COMPLETE_NEGATED: 'a complete kit, reported as "no items are missing"',
+    OCCLUDED: "the tray is covered - nothing can be confirmed either way",
     EMPTY: "the kit is missing everything",
     LOW_CONFIDENCE: "a poor viewing angle - readings below the confidence floor",
     GARBLED: "the model returned prose instead of JSON",
@@ -35,7 +51,7 @@ _BUILTIN_SCENES = {
 
 
 class SimulatedEngine(InferenceEngine):
-    """Produces Sightings from a scene name rather than from pixels.
+    """Produces model output from a scene name rather than from pixels.
 
     Pass `missing-<key>` or `damaged-<key>` to knock out a specific item, e.g.
     `--scene missing-shears`.
@@ -51,7 +67,7 @@ class SimulatedEngine(InferenceEngine):
     def scenes() -> dict[str, str]:
         return dict(_BUILTIN_SCENES)
 
-    def infer(self, frame: Frame, manifest: Manifest) -> list[Sighting]:
+    def infer(self, frame: Frame, manifest: Manifest) -> Observation:
         scene = frame.image
         if not isinstance(scene, str):
             raise InferenceError(
@@ -61,63 +77,88 @@ class SimulatedEngine(InferenceEngine):
             )
 
         if scene == ENGINE_FAULT:
+            # The NPU died before producing any text at all. There is nothing
+            # for either parser to read, so no comparison is possible.
             raise InferenceError("simulated NPU fault: Hexagon context lost")
 
-        if scene == GARBLED:
-            # The engine ran and returned something unusable. Upstream this is
-            # indistinguishable from a real model apologising in prose.
+        raw = self._compose_reply(scene, manifest)
+
+        try:
+            sightings = parse_reply(raw, manifest)
+        except ReplyParseError as exc:
             raise InferenceError(
-                "model reply was unusable: no JSON object found in reply: "
-                "'The kit appears to be in good order, I think.'"
+                f"model reply was unusable: {exc}", raw_reply=raw
+            ) from exc
+
+        return Observation(sightings=tuple(sightings), raw_reply=raw)
+
+    # -- scene composition ---------------------------------------------------
+
+    def _compose_reply(self, scene: str, manifest: Manifest) -> str:
+        if scene == GARBLED:
+            # Prose only, no JSON. The single most common real failure.
+            return "The kit appears to be in good order, I think."
+
+        if scene == COMPLETE:
+            return self._reply(
+                "All required items are present and appear serviceable.",
+                {key: (Presence.FOUND, 0.94) for key in manifest.keys},
+            )
+
+        if scene == COMPLETE_NEGATED:
+            # A compliant kit, phrased as a denial. The blueprint trips over
+            # its own trigger words here and rejects a good kit.
+            return self._reply(
+                "No items are missing from this kit; everything is present.",
+                {key: (Presence.FOUND, 0.94) for key in manifest.keys},
             )
 
         if scene == EMPTY:
-            return [
-                self._sighting(key, Presence.ABSENT, 0.93) for key in manifest.keys
-            ]
+            return self._reply(
+                "The tray is empty. Every required item is missing.",
+                {key: (Presence.ABSENT, 0.93) for key in manifest.keys},
+            )
 
         if scene == OCCLUDED:
-            # Nothing is asserted either way - the strongest test of the
-            # safety rule, because a naive implementation reads "no failures
-            # reported" as a pass.
-            return [
-                self._sighting(key, Presence.UNREADABLE, 0.88, "occluded")
-                for key in manifest.keys
-            ]
+            return self._reply(
+                "The tray is obscured; I am unable to assess its contents.",
+                {key: (Presence.UNREADABLE, 0.88) for key in manifest.keys},
+            )
 
         if scene == LOW_CONFIDENCE:
-            floor = manifest.confidence_floor
-            return [
-                self._sighting(key, Presence.FOUND, max(0.0, floor - 0.15))
-                for key in manifest.keys
-            ]
+            floor = max(0.0, manifest.confidence_floor - 0.15)
+            return self._reply(
+                "The image is dim and my assessment is tentative.",
+                {key: (Presence.FOUND, floor) for key in manifest.keys},
+            )
 
-        if scene == COMPLETE:
-            return [
-                self._sighting(key, Presence.FOUND, 0.94) for key in manifest.keys
-            ]
-
-        for prefix, presence in (
-            ("missing-", Presence.ABSENT),
-            ("damaged-", Presence.DAMAGED),
+        # Phrased without singular/plural agreement - "Trauma Shears" and
+        # "Hard Hat" both have to read correctly, and a model listing findings
+        # writes them this way anyway.
+        for prefix, presence, phrasing in (
+            ("missing-", Presence.ABSENT, "Absent from the tray"),
+            ("damaged-", Presence.DAMAGED, "Damaged and unserviceable"),
         ):
             if scene.startswith(prefix):
                 target = scene[len(prefix) :]
-                if manifest.item(target) is None:
+                item = manifest.item(target)
+                if item is None:
                     raise InferenceError(
                         f"scene {scene!r} refers to {target!r}, which is not on "
                         f"manifest {manifest.manifest_id!r}. Items: "
                         f"{', '.join(manifest.keys)}"
                     )
-                return [
-                    self._sighting(
-                        key,
-                        presence if key == target else Presence.FOUND,
-                        0.93,
-                        "simulated defect" if key == target else "",
-                    )
-                    for key in manifest.keys
-                ]
+                return self._reply(
+                    f"{phrasing}: {item.label}. "
+                    "All other required items are present.",
+                    {
+                        key: (
+                            presence if key == target else Presence.FOUND,
+                            0.93,
+                        )
+                        for key in manifest.keys
+                    },
+                )
 
         raise InferenceError(
             f"unknown scene {scene!r}. Built-in scenes: "
@@ -125,13 +166,27 @@ class SimulatedEngine(InferenceEngine):
             f"damaged-<key> for {', '.join(manifest.keys)}"
         )
 
-    def _sighting(
-        self, key: str, presence: Presence, confidence: float, note: str = ""
-    ) -> Sighting:
-        wobble = self._random.uniform(-self._jitter, self._jitter)
-        return Sighting(
-            key=key,
-            presence=presence,
-            confidence=max(0.0, min(1.0, confidence + wobble)),
-            note=note,
-        )
+    def _reply(
+        self, narration: str, readings: dict[str, tuple[Presence, float]]
+    ) -> str:
+        """Prose narration followed by a fenced JSON block.
+
+        The `note` field is omitted rather than emitted empty - both because
+        that is what a real model does, and because a field that is always
+        present would make the naive comparison an artifact of this module's
+        schema rather than of the blueprint's logic.
+        """
+        items = [
+            {
+                "key": key,
+                "presence": presence.value,
+                "confidence": round(self._wobble(confidence), 3),
+            }
+            for key, (presence, confidence) in readings.items()
+        ]
+        block = json.dumps({"items": items}, indent=2)
+        return f"{narration}\n\n```json\n{block}\n```"
+
+    def _wobble(self, confidence: float) -> float:
+        drift = self._random.uniform(-self._jitter, self._jitter)
+        return max(0.0, min(1.0, confidence + drift))

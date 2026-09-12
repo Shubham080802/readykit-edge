@@ -5,10 +5,16 @@ a Verdict - deciding is `resolve_verdict`'s job alone, so that the safety rule
 lives in exactly one place and every engine is held to it.
 """
 
-from .base import InferenceEngine, InferenceError
+from .base import InferenceEngine, InferenceError, Observation
 from .simulated import SimulatedEngine
 
-__all__ = ["InferenceEngine", "InferenceError", "SimulatedEngine", "load_engine"]
+__all__ = [
+    "InferenceEngine",
+    "InferenceError",
+    "Observation",
+    "SimulatedEngine",
+    "load_engine",
+]
 
 
 def load_engine(name: str, **kwargs: object) -> InferenceEngine:

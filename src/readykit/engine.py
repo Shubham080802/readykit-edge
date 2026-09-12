@@ -5,6 +5,11 @@ been made by `resolve_verdict`, and this just carries it out. The one rule it
 adds is that **every failure of its own machinery resolves to INDETERMINATE**:
 a dead camera, a crashed NPU, and an unparseable reply all keep the Latch
 engaged, and all say so in the Inspection Record.
+
+It also replays `readykit.naive` - the original blueprint's substring matcher -
+against the same model reply, purely to record what that design would have
+done. That result is written to the Inspection Record and shown in the console.
+It never touches the Host Link.
 """
 
 from __future__ import annotations
@@ -25,6 +30,7 @@ from .domain import (
     resolve_verdict,
 )
 from .inference.base import InferenceEngine, InferenceError
+from .naive import Comparison, compare
 from .protocol import Command
 
 _COMMAND_FOR = {
@@ -40,6 +46,9 @@ class InspectionOutcome:
 
     record: InspectionRecord
     link_result: LinkResult | None
+    comparison: Comparison | None = None
+    """What the original blueprint would have done with the same reply, or
+    None when there was no reply for it to parse."""
 
     @property
     def verdict(self) -> Verdict:
@@ -53,6 +62,14 @@ class InspectionOutcome:
         must not be reported to the operator as though it did.
         """
         return self.link_result is not None and self.link_result.acknowledged
+
+
+@dataclass(frozen=True, slots=True)
+class _Observed:
+    frame: Frame | None
+    resolution: Resolution
+    sightings: list[Sighting]
+    raw_reply: str | None
 
 
 class InspectionEngine:
@@ -74,17 +91,26 @@ class InspectionEngine:
         started_at = datetime.now(UTC)
         began = monotonic()
 
-        frame, resolution, sightings = self._observe()
+        observed = self._observe()
         latency_ms = (monotonic() - began) * 1000.0
 
-        link_result = self._enact(resolution)
+        link_result = self._enact(observed.resolution)
+
+        # Replayed for the record only. `compare` cannot actuate - it is a pure
+        # function returning a dataclass, and nothing downstream of here reads
+        # it when deciding what to send.
+        comparison = (
+            compare(observed.raw_reply, observed.resolution.verdict)
+            if observed.raw_reply is not None
+            else None
+        )
 
         record = InspectionRecord(
             inspection_id=uuid.uuid4().hex[:12],
             manifest_id=self.manifest.manifest_id,
             started_at=started_at,
-            resolution=resolution,
-            sightings=tuple(sightings),
+            resolution=observed.resolution,
+            sightings=tuple(observed.sightings),
             commanded=(
                 link_result.describe()
                 if link_result is not None
@@ -92,35 +118,54 @@ class InspectionEngine:
             ),
             engine=self.engine.name,
             latency_ms=latency_ms,
-            frame_digest=frame.digest if frame is not None else "",
+            frame_digest=observed.frame.digest if observed.frame else "",
+            raw_reply=observed.raw_reply or "",
+            blueprint_signal=comparison.signal if comparison else "",
+            blueprint_divergence=(
+                comparison.divergence.value if comparison else ""
+            ),
         )
-        return InspectionOutcome(record=record, link_result=link_result)
+        return InspectionOutcome(
+            record=record, link_result=link_result, comparison=comparison
+        )
 
-    def _observe(
-        self,
-    ) -> tuple[Frame | None, Resolution, list[Sighting]]:
+    def _observe(self) -> _Observed:
         """Capture and infer, converting every failure into INDETERMINATE."""
         try:
             frame = self.source.read()
         except CaptureError as exc:
-            return None, _indeterminate(f"Capture failed: {exc}", self.manifest), []
+            return _Observed(
+                None, _indeterminate(f"Capture failed: {exc}", self.manifest), [], None
+            )
 
         try:
-            sightings = self.engine.infer(frame, self.manifest)
+            observation = self.engine.infer(frame, self.manifest)
         except InferenceError as exc:
-            return frame, _indeterminate(f"Inference failed: {exc}", self.manifest), []
+            return _Observed(
+                frame,
+                _indeterminate(f"Inference failed: {exc}", self.manifest),
+                [],
+                exc.raw_reply,
+            )
         except Exception as exc:
             # An engine that raised something unexpected is an engine we
             # cannot reason about. Same posture: do not open the latch.
-            return (
+            return _Observed(
                 frame,
                 _indeterminate(
                     f"Inference raised {type(exc).__name__}: {exc}", self.manifest
                 ),
                 [],
+                None,
             )
 
-        return frame, resolve_verdict(self.manifest, sightings), sightings
+        sightings = list(observation.sightings)
+        return _Observed(
+            frame,
+            resolve_verdict(self.manifest, sightings),
+            sightings,
+            observation.raw_reply,
+        )
 
     def _enact(self, resolution: Resolution) -> LinkResult | None:
         if self.link is None:

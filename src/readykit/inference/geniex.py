@@ -16,9 +16,9 @@ from pathlib import Path
 from typing import Any
 
 from ..capture import Frame
-from ..domain import Manifest, Sighting
+from ..domain import Manifest
 from ..reply import ReplyParseError, build_prompt, parse_reply
-from .base import InferenceEngine, InferenceError
+from .base import InferenceEngine, InferenceError, Observation
 
 
 class GenieXEngine(InferenceEngine):
@@ -59,7 +59,7 @@ class GenieXEngine(InferenceEngine):
 
         self._timeout = timeout_seconds
 
-    def infer(self, frame: Frame, manifest: Manifest) -> list[Sighting]:
+    def infer(self, frame: Frame, manifest: Manifest) -> Observation:
         prompt = build_prompt(manifest)
         try:
             raw = self._engine.infer(image=frame.image, text=prompt)
@@ -70,12 +70,17 @@ class GenieXEngine(InferenceEngine):
             raw = str(raw)
 
         try:
-            return parse_reply(raw, manifest)
+            sightings = parse_reply(raw, manifest)
         except ReplyParseError as exc:
             # The model ran but produced nothing we can act on. This is the
             # single most likely real-world failure, and it must not be
-            # mistaken for a clean kit.
-            raise InferenceError(f"model reply was unusable: {exc}") from exc
+            # mistaken for a clean kit. The text is kept: it is exactly what
+            # the blueprint's substring matcher would have acted on.
+            raise InferenceError(
+                f"model reply was unusable: {exc}", raw_reply=raw
+            ) from exc
+
+        return Observation(sightings=tuple(sightings), raw_reply=raw)
 
     def close(self) -> None:
         engine = getattr(self, "_engine", None)

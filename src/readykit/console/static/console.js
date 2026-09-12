@@ -81,6 +81,81 @@ function renderVerdict(last, telemetry) {
       "actuated — treat the enclosure as unchanged.";
     warn.appendChild(box);
   }
+
+  renderBlueprint(last);
+}
+
+/* --------------------------------------------------------------- blueprint */
+
+/* The same model reply, run through the original blueprint's substring matcher.
+ * Displayed and recorded only - it is never sent to the actuator node. */
+function renderBlueprint(last) {
+  const host = $("blueprint");
+  host.innerHTML = "";
+
+  const bp = last.blueprint;
+  if (!bp) return;
+
+  const box = document.createElement("div");
+  box.className = "compare";
+  box.dataset.divergence = bp.divergence;
+
+  const head = document.createElement("div");
+  head.className = "compare__head";
+
+  const title = document.createElement("span");
+  title.className = "compare__title";
+  title.textContent = "Original blueprint logic";
+
+  const tag = document.createElement("span");
+  tag.className = "compare__tag";
+  tag.textContent =
+    bp.divergence === "unsafe"
+      ? "would have unlocked"
+      : bp.divergence === "spurious"
+        ? "would have rejected a good kit"
+        : "same decision";
+
+  const signal = document.createElement("code");
+  signal.className = "compare__signal";
+  signal.textContent = bp.signal;
+
+  head.append(title, tag, signal);
+
+  const why = document.createElement("p");
+  why.className = "compare__why";
+  why.textContent = `${bp.reason}.`;
+
+  box.append(head, why);
+
+  /* The verbatim first line is the point: it is what the two-substring match
+   * actually ran against. Showing it pre-empts "you rigged the input". */
+  if (last.raw_reply) {
+    const quote = document.createElement("blockquote");
+    quote.className = "compare__quote";
+    quote.textContent = last.raw_reply.trim().split("\n")[0];
+    box.appendChild(quote);
+  }
+
+  host.appendChild(box);
+}
+
+function renderBlueprintTally(tally) {
+  if (!tally) return;
+  const total =
+    tally.agreed + tally.unsafe + tally.spurious + tally.not_comparable;
+
+  $("bp-count").textContent = total ? `over ${total} inspections` : "";
+
+  const unsafe = $("bp-unsafe");
+  unsafe.textContent = String(tally.unsafe);
+  unsafe.dataset.tone = tally.unsafe > 0 ? "fail" : "";
+
+  const spurious = $("bp-spurious");
+  spurious.textContent = String(tally.spurious);
+  spurious.dataset.tone = tally.spurious > 0 ? "hold" : "";
+
+  $("bp-agreed").textContent = String(tally.agreed);
 }
 
 /* ---------------------------------------------------------------- checklist */
@@ -258,6 +333,7 @@ async function refresh() {
     getJSON("/api/records?limit=25"),
   ]);
   renderVerdict(state.last, state.telemetry);
+  renderBlueprintTally(state.blueprint_tally);
   renderChecklist(state.last);
   renderTelemetry(state.telemetry);
   renderRecords(records.records, state.tally);

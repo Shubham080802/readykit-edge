@@ -211,6 +211,18 @@ class InspectionRecord:
     latency_ms: float = 0.0
     frame_digest: str = ""
 
+    raw_reply: str = ""
+    """What the model actually said, verbatim. "The model cleared this kit" is
+    a weak claim unless its own words are on the record."""
+
+    blueprint_signal: str = ""
+    """What the original blueprint's substring matcher would have commanded on
+    this same reply, or empty when there was no reply to parse."""
+
+    blueprint_divergence: str = ""
+    """agreed | unsafe | spurious. `unsafe` means the blueprint would have
+    released the latch where this system did not."""
+
     def to_json_line(self) -> str:
         payload = {
             "inspection_id": self.inspection_id,
@@ -235,6 +247,9 @@ class InspectionRecord:
             "engine": self.engine,
             "latency_ms": round(self.latency_ms, 2),
             "frame_digest": self.frame_digest,
+            "raw_reply": self.raw_reply,
+            "blueprint_signal": self.blueprint_signal,
+            "blueprint_divergence": self.blueprint_divergence,
         }
         return json.dumps(payload, separators=(",", ":"), sort_keys=True)
 

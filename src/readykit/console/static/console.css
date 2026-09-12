@@ -404,6 +404,14 @@ body { min-height: 100vh; }
   overflow-y: auto;
 }
 
+/* One line per event, truncated. Wrapped log lines clipped mid-word at the
+ * scroll boundary read as a rendering fault rather than as a full buffer. */
+.events > div {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ----------------------------------------------------------------- controls */
 
 .controls {
@@ -562,4 +570,101 @@ body { min-height: 100vh; }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
+}
+
+/* ------------------------------------------------- blueprint comparison */
+
+/* The original design's verdict on the same model reply. It sits inside the
+ * verdict banner but is visibly subordinate to it - a footnote on the
+ * decision, never a competing decision. Anything that read as a second live
+ * verdict would be dangerous on this screen. */
+
+.compare {
+  margin-top: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--hairline);
+  border-left-width: 3px;
+  background: var(--surface-2);
+}
+
+.compare[data-divergence="unsafe"] {
+  border-color: var(--hairline);
+  border-left-color: var(--verdict-fail);
+  background: color-mix(in srgb, var(--verdict-fail) 8%, var(--surface-2));
+}
+
+.compare[data-divergence="spurious"] {
+  border-left-color: var(--verdict-hold);
+  background: color-mix(in srgb, var(--verdict-hold) 7%, var(--surface-2));
+}
+
+.compare[data-divergence="agreed"] {
+  border-left-color: var(--hairline-tertiary);
+}
+
+.compare__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.compare__title {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--ink-subtle);
+}
+
+.compare__tag {
+  font-size: 13px;
+  color: var(--ink-tertiary);
+}
+
+.compare[data-divergence="unsafe"] .compare__tag {
+  color: var(--verdict-fail);
+  font-weight: 500;
+}
+
+.compare[data-divergence="spurious"] .compare__tag { color: var(--verdict-hold); }
+
+.compare__signal {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--hairline-strong);
+  color: var(--ink-subtle);
+  white-space: nowrap;
+}
+
+.compare[data-divergence="unsafe"] .compare__signal {
+  color: var(--verdict-fail);
+  border-color: color-mix(in srgb, var(--verdict-fail) 45%, transparent);
+}
+
+.compare__why {
+  margin: var(--space-xs) 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-muted);
+}
+
+/* The model's verbatim words - what the two-substring match actually ran
+ * against. Showing it is what keeps the comparison from looking rigged. */
+.compare__quote {
+  margin: var(--space-sm) 0 0;
+  padding: var(--space-xs) var(--space-sm);
+  border-left: 2px solid var(--hairline-strong);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-subtle);
+}
+
+@media (max-width: 560px) {
+  .compare__signal { margin-left: 0; }
 }
