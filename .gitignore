@@ -1,0 +1,23 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+
+# Exported NPU models are large binaries and are licensed separately
+# via Qualcomm AI Hub - never commit them.
+models/*.qnn
+models/*.bin
+models/*.onnx
+
+# Inspection Records are operational data, not source.
+records/
+*.jsonl
+
+.DS_Store
+.vscode/
+.idea/
