@@ -87,6 +87,23 @@ def _build_parser() -> argparse.ArgumentParser:
     compare_cmd.add_argument("--manifest", type=Path, required=True)
     compare_cmd.set_defaults(handler=_cmd_compare)
 
+    demo = sub.add_parser(
+        "demo", help="run the scripted demonstration sequence"
+    )
+    _add_pipeline_args(demo)
+    demo.add_argument("--dwell", type=float, default=4.0)
+    demo.add_argument(
+        "--loop", action="store_true", help="repeat forever, for an unattended booth"
+    )
+    demo.set_defaults(handler=_cmd_demo)
+
+    bench = sub.add_parser(
+        "bench", help="measure inference latency on whatever engine is configured"
+    )
+    _add_pipeline_args(bench)
+    bench.add_argument("--runs", type=int, default=30)
+    bench.set_defaults(handler=_cmd_bench)
+
     audit = sub.add_parser(
         "audit", help="verify the inspection record chain has not been altered"
     )
@@ -99,6 +116,32 @@ def _build_parser() -> argparse.ArgumentParser:
     records.set_defaults(handler=_cmd_records)
 
     return parser
+
+
+DEMO_BEATS: tuple[tuple[str, str], ...] = (
+    (
+        "complete",
+        "A complete, in-date kit. Every item found, latch releases.",
+    ),
+    (
+        "missing-shears",
+        "The shears are gone - and the model says 'absent', not 'missing'. "
+        "The original design reads that as a pass.",
+    ),
+    (
+        "expired",
+        "Every item present, every tick green. It still fails: the chest "
+        "seal is out of date.",
+    ),
+    (
+        "occluded",
+        "A cloth over the tray. Nothing can be established, so nothing opens.",
+    ),
+    (
+        "garbled",
+        "The model answers in prose instead of JSON. Still not a pass.",
+    ),
+)
 
 
 def _add_pipeline_args(parser: argparse.ArgumentParser) -> None:
@@ -119,11 +162,31 @@ def _add_pipeline_args(parser: argparse.ArgumentParser) -> None:
         help="loopback drives a virtual actuator node in-process",
     )
     parser.add_argument("--port", help="serial device, e.g. /dev/ttyACM0 or COM3")
+    parser.add_argument(
+        "--fallback",
+        action="store_true",
+        help=(
+            "if the serial link cannot be opened, continue against a virtual "
+            "actuator node; loudly, and never by default"
+        ),
+    )
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument(
         "--log", type=Path, default=Path("records/inspections.jsonl")
     )
     parser.add_argument("--no-log", action="store_true")
+    parser.add_argument(
+        "--frames",
+        type=int,
+        default=1,
+        help="frames to aggregate per inspection; more looks, fewer false holds",
+    )
+    parser.add_argument(
+        "--agreement",
+        type=float,
+        default=0.6,
+        help="fraction of frames that must agree before a reading stands",
+    )
 
 
 def _cmd_inspect(args: argparse.Namespace) -> int:
@@ -206,6 +269,68 @@ def _cmd_scenes(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_demo(args: argparse.Namespace) -> int:
+    """The scripted run-of-show.
+
+    Fixed order, fixed scenes, no improvisation - so it behaves the same on
+    the tenth run as the first, and so a hand slipping on a keyboard cannot
+    put it somewhere unexpected mid-pitch.
+    """
+    with _build_engine(args) as engine:
+        while True:
+            for index, (scene, caption) in enumerate(DEMO_BEATS, start=1):
+                engine.source = ScriptedSource(scene)
+                print(
+                    f"\n  {DIM}({index}/{len(DEMO_BEATS)}){RESET} "
+                    f"{BOLD}{scene}{RESET}\n  {DIM}{caption}{RESET}"
+                )
+                outcome = engine.run_once()
+                _render(outcome, engine)
+                _record(args, outcome)
+                _sleep_with_heartbeats(engine, args.dwell)
+
+            if not args.loop:
+                return 0
+
+
+def _cmd_bench(args: argparse.Namespace) -> int:
+    """Measure this engine, on this machine, right now.
+
+    Every number printed is measured. Nothing here is extrapolated from a
+    datasheet, and the simulated engine is labelled as such so its timings are
+    never mistaken for NPU figures.
+    """
+    args.no_log = True
+    with _build_engine(args) as engine:
+        for _ in range(max(1, args.runs)):
+            engine.run_once()
+        samples = sorted(engine.latencies_ms)
+
+    if not samples:
+        print("error: no successful inferences to measure", file=sys.stderr)
+        return 1
+
+    def pct(fraction: float) -> float:
+        index = min(len(samples) - 1, int(len(samples) * fraction))
+        return samples[index]
+
+    simulated = args.engine == "simulated"
+    print(f"\n  {BOLD}{args.engine}{RESET}  {DIM}{len(samples)} inferences{RESET}")
+    if simulated:
+        print(
+            f"  {DIM}simulated engine - these are harness timings, "
+            f"not NPU figures{RESET}"
+        )
+    print()
+    print(f"    {DIM}min   {RESET}{samples[0]:8.2f} ms")
+    print(f"    {DIM}p50   {RESET}{pct(0.50):8.2f} ms")
+    print(f"    {DIM}p95   {RESET}{pct(0.95):8.2f} ms")
+    print(f"    {DIM}max   {RESET}{samples[-1]:8.2f} ms")
+    throughput = 1000.0 / pct(0.50) if pct(0.50) > 0 else float("inf")
+    print(f"    {DIM}rate  {RESET}{throughput:8.1f} inspections/sec at p50\n")
+    return 0
+
+
 def _cmd_audit(args: argparse.Namespace) -> int:
     log = InspectionLog(args.log)
     result = log.verify()
@@ -273,6 +398,8 @@ def _build_engine(args: argparse.Namespace) -> InspectionEngine:
         source=_build_source(args),
         engine=_build_inference(args),
         link=_build_link(args),
+        frames=getattr(args, "frames", 1),
+        min_agreement=getattr(args, "agreement", 0.6),
     )
 
 
@@ -303,11 +430,27 @@ def _build_inference(args: argparse.Namespace) -> InferenceEngine:
 
 
 def _build_link(args: argparse.Namespace) -> HostLink:
-    if args.link == "serial":
-        if not args.port:
-            raise ValueError("--link serial requires --port, e.g. --port /dev/ttyACM0")
+    if args.link != "serial":
+        return open_link("loopback")
+
+    if not args.port:
+        raise ValueError("--link serial requires --port, e.g. --port /dev/ttyACM0")
+
+    try:
         return open_link("serial", port=args.port, baud_rate=args.baud)
-    return open_link("loopback")
+    except LinkError as exc:
+        if not getattr(args, "fallback", False):
+            raise
+        # Only ever on an explicit --fallback. Silently degrading to a virtual
+        # actuator would mean a demo that looks identical whether or not a
+        # real latch moved, which is the one thing this system must not do.
+        print(
+            f"  {DIM}! serial link unavailable ({exc});{RESET}\n"
+            f"  {DIM}! falling back to a VIRTUAL actuator node - "
+            f"nothing physical will move{RESET}",
+            file=sys.stderr,
+        )
+        return open_link("loopback")
 
 
 def _record(args: argparse.Namespace, outcome: InspectionOutcome) -> None:

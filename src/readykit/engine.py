@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from time import monotonic
 
+from .aggregate import DEFAULT_AGREEMENT, aggregate_sightings
 from .bridge.base import HostLink, LinkResult
 from .capture import CaptureError, Frame, FrameSource
 from .domain import (
@@ -81,11 +82,18 @@ class InspectionEngine:
         source: FrameSource,
         engine: InferenceEngine,
         link: HostLink | None = None,
+        frames: int = 1,
+        min_agreement: float = DEFAULT_AGREEMENT,
     ) -> None:
         self.manifest = manifest
         self.source = source
         self.engine = engine
         self.link = link
+        self.frames = max(1, frames)
+        self.min_agreement = min_agreement
+        self.latencies_ms: list[float] = []
+        """Every inference latency this engine has measured, for `readykit
+        bench` and the console's NPU panel. Measured, never estimated."""
 
     def run_once(self) -> InspectionOutcome:
         started_at = datetime.now(UTC)
@@ -139,7 +147,9 @@ class InspectionEngine:
             )
 
         try:
+            began = monotonic()
             observation = self.engine.infer(frame, self.manifest)
+            self.latencies_ms.append((monotonic() - began) * 1000.0)
         except InferenceError as exc:
             return _Observed(
                 frame,
@@ -159,12 +169,28 @@ class InspectionEngine:
                 None,
             )
 
-        sightings = list(observation.sightings)
+        per_frame: list[list[Sighting]] = [list(observation.sightings)]
+        raw = observation.raw_reply
+
+        # Additional looks. A frame that fails to capture or infer is skipped
+        # rather than fatal - we already have at least one good look, and
+        # disagreement among the looks we did get is handled by aggregation.
+        for _ in range(self.frames - 1):
+            try:
+                extra_frame = self.source.read()
+                began = monotonic()
+                extra = self.engine.infer(extra_frame, self.manifest)
+                self.latencies_ms.append((monotonic() - began) * 1000.0)
+            except (CaptureError, InferenceError):
+                continue
+            per_frame.append(list(extra.sightings))
+
+        sightings = aggregate_sightings(per_frame, self.min_agreement)
         return _Observed(
             frame,
             resolve_verdict(self.manifest, sightings),
             sightings,
-            observation.raw_reply,
+            raw,
         )
 
     def _enact(self, resolution: Resolution) -> LinkResult | None:
