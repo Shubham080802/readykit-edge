@@ -101,6 +101,7 @@ def create_app(
                     "label": item.label,
                     "severity": item.severity.value,
                     "quantity": item.quantity,
+                    "expiry_checked": item.expiry_checked,
                 }
                 for item in manifest.items
             ],
@@ -167,8 +168,12 @@ def create_app(
 def _serialise(outcome: Any, manifest: Manifest) -> dict[str, Any]:
     record = outcome.record
     resolution = record.resolution
-    blamed = set(resolution.missing) | set(resolution.damaged)
+    blamed = set(resolution.missing) | set(resolution.damaged) | set(
+        resolution.expired
+    )
     unresolved = set(resolution.unresolved)
+    expired = set(resolution.expired)
+    soon = set(resolution.expiring_soon)
 
     sightings = {s.key: s for s in record.sightings}
     items = []
@@ -184,6 +189,14 @@ def _serialise(outcome: Any, manifest: Manifest) -> dict[str, Any]:
                 "note": sighting.note if sighting else "",
                 "blamed": item.key in blamed,
                 "unresolved": item.key in unresolved or sighting is None,
+                "expiry_checked": item.expiry_checked,
+                "expiry": (
+                    sighting.expiry.isoformat()
+                    if sighting and sighting.expiry
+                    else None
+                ),
+                "expired": item.key in expired,
+                "expiring_soon": item.key in soon,
             }
         )
 
@@ -193,6 +206,8 @@ def _serialise(outcome: Any, manifest: Manifest) -> dict[str, Any]:
         "reason": resolution.reason,
         "items": items,
         "advisories": list(resolution.advisories),
+        "expired": list(resolution.expired),
+        "expiring_soon": list(resolution.expiring_soon),
         "commanded": record.commanded,
         "enacted": outcome.enacted,
         "engine": record.engine,

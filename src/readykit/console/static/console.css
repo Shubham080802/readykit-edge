@@ -284,7 +284,7 @@ body { min-height: 100vh; }
 
 .item {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto auto;
+  grid-template-columns: 22px minmax(0, 1fr) auto auto auto;
   align-items: center;
   gap: var(--space-sm);
   padding: 10px var(--space-sm);
@@ -320,6 +320,24 @@ body { min-height: 100vh; }
 .item[data-presence="damaged"] .item__glyph { color: var(--verdict-fail); }
 .item[data-presence="unreadable"] .item__glyph,
 .item[data-presence="unreported"] .item__glyph { color: var(--verdict-hold); }
+
+/* Expiry overrides the presence colour. The item IS present - that is the
+ * whole point - so a green glyph beside an expired date would be a lie. */
+.item[data-expired="true"] .item__glyph { color: var(--verdict-fail); }
+
+.item__expiry {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  min-width: 78px;
+  text-align: right;
+  color: var(--ink-tertiary);
+}
+
+.item__expiry[data-state="expired"] { color: var(--verdict-fail); font-weight: 700; }
+.item__expiry[data-state="soon"] { color: var(--verdict-hold); }
+.item__expiry[data-state="unreadable"] { color: var(--verdict-hold); }
+.item__expiry[data-state="none"] { min-width: 0; }
 
 .item__label {
   font-size: 14px;
@@ -564,7 +582,7 @@ body { min-height: 100vh; }
   .verdict { padding: var(--space-md); }
   .panel { padding: var(--space-md); }
   .verdict__word { font-size: 28px; }
-  .item { grid-template-columns: 20px minmax(0, 1fr) auto; }
+  .item { grid-template-columns: 20px minmax(0, 1fr) auto auto; }
   .item__presence { display: none; }
 }
 

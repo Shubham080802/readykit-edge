@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from enum import StrEnum
 
 
@@ -58,6 +58,14 @@ class RequiredItem:
 
     quantity: int = 1
 
+    expiry_checked: bool = False
+    """Whether this item's printed use-by date must be read and judged.
+
+    Presence is not serviceability. A sealed, undamaged, correctly-placed
+    packet of expired haemostatic gauze satisfies every visual check and is
+    still not something you want a medic reaching for.
+    """
+
     def __post_init__(self) -> None:
         if not self.key:
             raise ValueError("RequiredItem.key must not be empty")
@@ -81,6 +89,11 @@ class Manifest:
     hold_seconds: float = 5.0
     """How long the Latch stays Released after a Pass."""
 
+    expiry_warning_days: int = 30
+    """An in-date item expiring within this many days is flagged as an
+    advisory. It still passes - it is serviceable today - but whoever restocks
+    the kit should know."""
+
     def __post_init__(self) -> None:
         if not self.items:
             raise ValueError(f"Manifest {self.manifest_id!r} has no items")
@@ -93,6 +106,11 @@ class Manifest:
             raise ValueError(
                 f"Manifest {self.manifest_id!r} hold_seconds must be > 0, "
                 f"got {self.hold_seconds}"
+            )
+        if self.expiry_warning_days < 0:
+            raise ValueError(
+                f"Manifest {self.manifest_id!r} expiry_warning_days must be "
+                f">= 0, got {self.expiry_warning_days}"
             )
         seen: set[str] = set()
         for item in self.items:
@@ -125,6 +143,7 @@ class Manifest:
                     label=str(entry["label"]),
                     severity=Severity(str(entry.get("severity", "critical"))),
                     quantity=_as_int(entry.get("quantity", 1)),
+                    expiry_checked=bool(entry.get("expiry_checked", False)),
                 )
                 for entry in raw_items
             )
@@ -134,6 +153,7 @@ class Manifest:
                 items=items,
                 confidence_floor=_as_float(raw.get("confidence_floor", 0.55)),
                 hold_seconds=_as_float(raw.get("hold_seconds", 5.0)),
+                expiry_warning_days=_as_int(raw.get("expiry_warning_days", 30)),
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError(f"Malformed manifest: {exc}") from exc
@@ -171,6 +191,14 @@ class Sighting:
     confidence: float
     note: str = ""
 
+    expiry: date | None = None
+    """The use-by date the model read off the item, or None if it read none.
+
+    None is not "does not expire" - it is "no date was established". For an
+    item the Manifest expiry-checks, that is unresolved, and unresolved keeps
+    the latch engaged like everything else unestablished.
+    """
+
     def __post_init__(self) -> None:
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError(
@@ -192,6 +220,13 @@ class Resolution:
     unresolved always means INDETERMINATE."""
 
     advisories: tuple[str, ...] = ()
+
+    expired: tuple[str, ...] = ()
+    """Items whose printed use-by date has passed. A positive finding of
+    non-compliance, exactly like a missing item."""
+
+    expiring_soon: tuple[str, ...] = ()
+    """In date today, but inside the Manifest's warning window. Advisory."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,12 +269,15 @@ class InspectionRecord:
             "damaged": list(self.resolution.damaged),
             "unresolved": list(self.resolution.unresolved),
             "advisories": list(self.resolution.advisories),
+            "expired": list(self.resolution.expired),
+            "expiring_soon": list(self.resolution.expiring_soon),
             "sightings": [
                 {
                     "key": s.key,
                     "presence": s.presence.value,
                     "confidence": round(s.confidence, 4),
                     "note": s.note,
+                    "expiry": s.expiry.isoformat() if s.expiry else None,
                 }
                 for s in self.sightings
             ],
@@ -254,7 +292,11 @@ class InspectionRecord:
         return json.dumps(payload, separators=(",", ":"), sort_keys=True)
 
 
-def resolve_verdict(manifest: Manifest, sightings: Iterable[Sighting]) -> Resolution:
+def resolve_verdict(
+    manifest: Manifest,
+    sightings: Iterable[Sighting],
+    as_of: date | None = None,
+) -> Resolution:
     """Decide a Verdict for one Kit against one Manifest.
 
     The whole safety posture of ReadyKit Edge is this function, and it rests on
@@ -265,7 +307,16 @@ def resolve_verdict(manifest: Manifest, sightings: Iterable[Sighting]) -> Resolu
 
     PASS therefore requires a positive, confident FOUND for every critical item.
     It is never the fallthrough branch.
+
+    Expiry obeys the same rule rather than a special case of its own. For an
+    item the Manifest expiry-checks, a date that was never read is unresolved -
+    not assumed fine. Presence is not serviceability: a sealed, undamaged,
+    correctly-placed packet of expired gauze passes every visual check and is
+    still not something to hand a medic.
+
+    `as_of` is injectable so expiry behaviour is testable without waiting.
     """
+    today = as_of if as_of is not None else datetime.now(UTC).date()
     by_key: dict[str, Sighting] = {}
     for sighting in sightings:
         if manifest.item(sighting.key) is None:
@@ -282,6 +333,8 @@ def resolve_verdict(manifest: Manifest, sightings: Iterable[Sighting]) -> Resolu
     damaged: list[str] = []
     unresolved: list[str] = []
     advisories: list[str] = []
+    expired: list[str] = []
+    expiring_soon: list[str] = []
 
     for item in manifest.items:
         found = by_key.get(item.key)
@@ -301,6 +354,11 @@ def resolve_verdict(manifest: Manifest, sightings: Iterable[Sighting]) -> Resolu
             continue
 
         if found.presence is Presence.FOUND:
+            if item.expiry_checked:
+                _judge_expiry(
+                    item, found, today, manifest.expiry_warning_days,
+                    expired, expiring_soon, unresolved, advisories,
+                )
             continue
 
         bucket = missing if found.presence is Presence.ABSENT else damaged
@@ -317,25 +375,65 @@ def resolve_verdict(manifest: Manifest, sightings: Iterable[Sighting]) -> Resolu
             damaged=tuple(damaged),
             unresolved=tuple(unresolved),
             advisories=tuple(advisories),
+            expired=tuple(expired),
+            expiring_soon=tuple(expiring_soon),
         )
 
-    if missing or damaged:
+    if missing or damaged or expired:
         return Resolution(
             verdict=Verdict.FAIL,
-            reason=_describe_failure(manifest, missing, damaged),
+            reason=_describe_failure(manifest, missing, damaged, expired),
             missing=tuple(missing),
             damaged=tuple(damaged),
             advisories=tuple(advisories),
+            expired=tuple(expired),
+            expiring_soon=tuple(expiring_soon),
         )
 
     reason = f"All {len(manifest.items)} required items present and serviceable"
+    notes = []
+    if expiring_soon:
+        notes.append(f"{len(expiring_soon)} expiring soon")
     if advisories:
-        reason += f"; {len(advisories)} advisory item(s) noted"
+        notes.append(f"{len(advisories)} advisory item(s) noted")
+    if notes:
+        reason += "; " + ", ".join(notes)
     return Resolution(
         verdict=Verdict.PASS,
         reason=reason,
         advisories=tuple(advisories),
+        expiring_soon=tuple(expiring_soon),
     )
+
+
+def _judge_expiry(
+    item: RequiredItem,
+    sighting: Sighting,
+    today: date,
+    warning_days: int,
+    expired: list[str],
+    expiring_soon: list[str],
+    unresolved: list[str],
+    advisories: list[str],
+) -> None:
+    """Judge one in-date-checked item's printed use-by date.
+
+    A date that was never read is unresolved, never assumed fine. This is the
+    same rule as everywhere else, applied to a different kind of evidence.
+    """
+    if sighting.expiry is None:
+        unresolved.append(item.key)
+        return
+
+    if sighting.expiry < today:
+        # Expiring *today* is still serviceable today - pharmaceutical use-by
+        # dates are inclusive of the printed day.
+        bucket = expired if item.severity is Severity.CRITICAL else advisories
+        bucket.append(item.key)
+        return
+
+    if (sighting.expiry - today).days <= warning_days:
+        expiring_soon.append(item.key)
 
 
 # Ordered least to most pessimistic. Used to break ties when the model reports
@@ -363,11 +461,16 @@ def _describe_unresolved(manifest: Manifest, unresolved: Sequence[str]) -> str:
 
 
 def _describe_failure(
-    manifest: Manifest, missing: Sequence[str], damaged: Sequence[str]
+    manifest: Manifest,
+    missing: Sequence[str],
+    damaged: Sequence[str],
+    expired: Sequence[str] = (),
 ) -> str:
     parts: list[str] = []
     if missing:
         parts.append("missing " + ", ".join(_label(manifest, k) for k in missing))
     if damaged:
         parts.append("damaged " + ", ".join(_label(manifest, k) for k in damaged))
+    if expired:
+        parts.append("expired " + ", ".join(_label(manifest, k) for k in expired))
     return "Kit non-compliant: " + "; ".join(parts)

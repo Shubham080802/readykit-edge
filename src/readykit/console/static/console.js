@@ -173,17 +173,20 @@ function renderChecklist(last) {
   for (const spec of manifest.items) {
     const seen = reported.get(spec.key);
     const presence = seen ? seen.presence : "unreported";
-    if (seen && presence === "found" && !seen.unresolved) resolved += 1;
+    if (seen && presence === "found" && !seen.unresolved && !seen.expired) {
+      resolved += 1;
+    }
 
     const row = document.createElement("li");
     row.className = "item";
     row.dataset.presence = presence;
     row.dataset.blamed = seen ? String(seen.blamed) : "false";
+    row.dataset.expired = seen ? String(Boolean(seen.expired)) : "false";
     row.dataset.unresolved = seen ? String(seen.unresolved) : "false";
 
     const glyph = document.createElement("span");
     glyph.className = "item__glyph";
-    glyph.textContent = GLYPH[presence] || "?";
+    glyph.textContent = seen && seen.expired ? "\u00d7" : GLYPH[presence] || "?";
     glyph.setAttribute("aria-hidden", "true");
 
     const label = document.createElement("span");
@@ -214,7 +217,29 @@ function renderChecklist(last) {
       confidence.dataset.none = "true";
     }
 
-    row.append(glyph, label, state, confidence);
+    /* An expired item is present and undamaged, so every other column on this
+     * row says it is fine. The date is the only thing that disagrees, which is
+     * exactly why it has to be legible. */
+    const expiry = document.createElement("span");
+    expiry.className = "item__expiry";
+    if (spec.expiry_checked) {
+      if (!seen || !seen.expiry) {
+        expiry.textContent = "unreadable";
+        expiry.dataset.state = "unreadable";
+      } else {
+        expiry.textContent = seen.expiry;
+        expiry.dataset.state = seen.expired
+          ? "expired"
+          : seen.expiring_soon
+            ? "soon"
+            : "ok";
+      }
+    } else {
+      expiry.textContent = "";
+      expiry.dataset.state = "none";
+    }
+
+    row.append(glyph, label, state, confidence, expiry);
     if (seen && seen.note) row.title = seen.note;
     list.appendChild(row);
   }

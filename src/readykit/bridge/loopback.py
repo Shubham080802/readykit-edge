@@ -67,6 +67,14 @@ class VirtualActuatorNode:
     indicator: Indicator = Indicator.OFF
     buzzer: bool = False
 
+    verdict_indicator: Indicator = Indicator.OFF
+    """The last indication a Verdict actually asked for.
+
+    Kept apart from `indicator` so that going stale can overlay the display
+    without destroying it. A FAIL that scrolls off because the cable was
+    briefly unplugged is a failure the operator never sees.
+    """
+
     last_seq: int | None = None
     last_contact_ms: float = field(default=0.0)
     release_expires_ms: float | None = None
@@ -86,6 +94,8 @@ class VirtualActuatorNode:
             and now >= self.release_expires_ms
         ):
             self._engage("hold expired")
+            if self.verdict_indicator is Indicator.PASS:
+                self._indicate(Indicator.OFF, buzzer=False)
 
         if now - self.last_contact_ms > self.link_timeout_ms:
             if self.latch is LatchState.RELEASED:
@@ -126,18 +136,18 @@ class VirtualActuatorNode:
 
     def _apply(self, frame: CommandFrame) -> AckStatus:
         if frame.command is Command.PING:
-            # Contact alone is the point. Clearing STALE here matters: without
-            # it the node reports a stale indicator over a live link, which
-            # contradicts itself on the operator's screen. The firmware does
-            # the same in applyCommand().
+            # Contact alone is the point. Recovering from STALE restores the
+            # last Verdict's indication rather than blanking it: a FAIL must
+            # not disappear because the cable was briefly unplugged, and an
+            # indicator reading "off" beside a sounding buzzer is a screen
+            # contradicting itself.
             if self.indicator is Indicator.STALE:
-                self.indicator = Indicator.OFF
+                self.indicator = self.verdict_indicator
             return AckStatus.OK
 
         if frame.command is Command.RESET:
             self._engage("reset requested")
-            self.indicator = Indicator.OFF
-            self.buzzer = False
+            self._indicate(Indicator.OFF, buzzer=False)
             return AckStatus.OK
 
         if frame.command is Command.RELEASE:
@@ -145,15 +155,13 @@ class VirtualActuatorNode:
 
         if frame.command is Command.REJECT:
             self._engage("reject")
-            self.indicator = Indicator.FAIL
-            self.buzzer = True
+            self._indicate(Indicator.FAIL, buzzer=True)
             self.events.append(f"reject: {frame.payload}")
             return AckStatus.OK
 
         if frame.command is Command.HOLD:
             self._engage("hold")
-            self.indicator = Indicator.HOLD
-            self.buzzer = False
+            self._indicate(Indicator.HOLD, buzzer=False)
             self.events.append(f"hold: {frame.payload}")
             return AckStatus.OK
 
@@ -174,8 +182,7 @@ class VirtualActuatorNode:
 
         self.latch = LatchState.RELEASED
         self.release_expires_ms = self.clock() + hold_ms
-        self.indicator = Indicator.PASS
-        self.buzzer = False
+        self._indicate(Indicator.PASS, buzzer=False)
         self.events.append(f"released for {hold_ms:.0f}ms")
         return AckStatus.OK
 
@@ -186,6 +193,12 @@ class VirtualActuatorNode:
         keeps the rule simple enough to hold in the firmware too.
         """
         return self.last_seq is not None and frame.seq == self.last_seq
+
+    def _indicate(self, indicator: Indicator, buzzer: bool) -> None:
+        """Set the display and remember it as the current Verdict's state."""
+        self.indicator = indicator
+        self.verdict_indicator = indicator
+        self.buzzer = buzzer
 
     def _engage(self, reason: str) -> None:
         if self.latch is LatchState.RELEASED:

@@ -277,16 +277,36 @@ def _render(outcome: InspectionOutcome, engine: InspectionEngine) -> None:
     print(f"\n  {colour}{BOLD}{label}{RESET}  {DIM}{latch}{RESET}")
     print(f"  {resolution.reason}")
 
+    expired = set(resolution.expired)
+    soon = set(resolution.expiring_soon)
+
     for sighting in outcome.record.sightings:
         item = engine.manifest.item(sighting.key)
         name = item.label if item else sighting.key
         mark = {"found": "+", "absent": "-", "damaged": "!", "unreadable": "?"}[
             sighting.presence.value
         ]
+        # An expired item is present and undamaged, so its presence glyph says
+        # nothing is wrong. Override it, or the row reads as compliant.
+        if sighting.key in expired:
+            mark = "x"
+
+        if item is not None and item.expiry_checked:
+            if sighting.expiry is None:
+                dated = f"  {DIM}exp unreadable{RESET}"
+            elif sighting.key in expired:
+                dated = f"  \033[38;5;203mEXPIRED {sighting.expiry}{RESET}"
+            elif sighting.key in soon:
+                dated = f"  \033[38;5;221mexpires {sighting.expiry}{RESET}"
+            else:
+                dated = f"  {DIM}exp {sighting.expiry}{RESET}"
+        else:
+            dated = ""
+
         note = f"  {DIM}{sighting.note}{RESET}" if sighting.note else ""
         print(
             f"    {mark} {name:<22} {DIM}{sighting.presence.value:<11}"
-            f"{sighting.confidence:.2f}{RESET}{note}"
+            f"{sighting.confidence:.2f}{RESET}{dated}{note}"
         )
 
     _render_comparison(outcome)

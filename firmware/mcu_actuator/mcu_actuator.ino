@@ -57,6 +57,12 @@ static LatchState latch          = LATCH_ENGAGED;
 static Indicator  indicator      = IND_OFF;
 static bool       buzzerOn       = false;
 
+/* The last indication a verdict actually asked for, kept apart from the
+ * displayed one so that going stale can overlay the display without
+ * destroying it. A FAIL that vanishes because the cable was briefly unplugged
+ * is a failure the operator never sees. */
+static Indicator  verdictIndicator = IND_OFF;
+
 static uint32_t   releaseExpires = 0;
 static bool       holdActive     = false;
 static uint32_t   lastContactMs  = 0;
@@ -67,6 +73,12 @@ static char   lineBuffer[RK_MAX_LINE];
 static size_t lineLength = 0;
 
 /* ------------------------------------------------------------------ latch */
+
+static void indicate(Indicator next, bool buzzer) {
+  indicator = next;
+  verdictIndicator = next;
+  buzzerOn = buzzer;
+}
 
 static void engageLatch() {
   digitalWrite(PIN_SOLENOID, SOLENOID_LOCKED);
@@ -140,7 +152,7 @@ static void tick() {
    * handled correctly by unsigned wraparound. */
   if (holdActive && (int32_t)(now - releaseExpires) >= 0) {
     engageLatch();
-    indicator = IND_OFF;
+    if (verdictIndicator == IND_PASS) indicate(IND_OFF, false);
   }
 
   if ((uint32_t)(now - lastContactMs) > LINK_TIMEOUT_MS) {
@@ -149,8 +161,9 @@ static void tick() {
     if (latch == LATCH_RELEASED) {
       engageLatch();
     }
+    /* Overlays the display only. verdictIndicator is untouched, so the
+     * verdict is restored when the host comes back. */
     indicator = IND_STALE;
-    buzzerOn = false;
   }
 }
 
@@ -166,22 +179,22 @@ static RkAckStatus applyRelease(const char *payload) {
   if (holdMs <= 0 || (uint32_t)holdMs > MAX_HOLD_MS) return RK_ACK_REFUSED;
 
   releaseLatch((uint32_t)holdMs);
-  indicator = IND_PASS;
-  buzzerOn = false;
+  indicate(IND_PASS, false);
   return RK_ACK_OK;
 }
 
 static RkAckStatus applyCommand(const RkFrame *frame) {
   switch (frame->command) {
     case RK_CMD_PING:
-      /* Contact alone is the point. If the link had been stale, clear it. */
-      if (indicator == IND_STALE) indicator = IND_OFF;
+      /* Contact alone is the point. Recovering from stale restores the last
+       * verdict's indication rather than blanking it - an indicator reading
+       * "off" beside a sounding buzzer is a panel contradicting itself. */
+      if (indicator == IND_STALE) indicator = verdictIndicator;
       return RK_ACK_OK;
 
     case RK_CMD_RESET:
       engageLatch();
-      indicator = IND_OFF;
-      buzzerOn = false;
+      indicate(IND_OFF, false);
       return RK_ACK_OK;
 
     case RK_CMD_RELEASE:
@@ -189,14 +202,12 @@ static RkAckStatus applyCommand(const RkFrame *frame) {
 
     case RK_CMD_REJECT:
       engageLatch();
-      indicator = IND_FAIL;
-      buzzerOn = true;
+      indicate(IND_FAIL, true);
       return RK_ACK_OK;
 
     case RK_CMD_HOLD:
       engageLatch();
-      indicator = IND_HOLD;
-      buzzerOn = false;
+      indicate(IND_HOLD, false);
       return RK_ACK_OK;
 
     default:
@@ -269,6 +280,7 @@ void setup() {
   lastContactMs = millis();
   latch = LATCH_ENGAGED;
   indicator = IND_OFF;
+  verdictIndicator = IND_OFF;
 }
 
 void loop() {

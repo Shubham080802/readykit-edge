@@ -53,6 +53,25 @@ finding that the Kit is non-compliant. Both keep the Latch engaged; only
 Indeterminate means "ask again", and it is never a reason to unlock.
 _Avoid_: Unknown, error, null result, inconclusive
 
+**Expiry Check**:
+A Required Item whose printed use-by date must be read off the packaging and
+judged, not just its presence confirmed. Presence is not serviceability - a
+sealed, undamaged, correctly-placed packet of expired gauze satisfies every
+visual check and is still not serviceable.
+_Avoid_: Date check, freshness, shelf life
+
+**Expired**:
+A Required Item whose printed use-by date has passed. A positive finding of
+non-compliance, exactly like an absent item, and distinct from Damaged: the
+item is intact, it is simply out of date. Use-by dates are inclusive, so an
+item expiring today is still serviceable today.
+_Avoid_: Stale, out of date, lapsed, invalid
+
+**Expiring Soon**:
+In date today, but falling due within the Manifest's warning window. An
+advisory - the Kit passes, and whoever restocks it is told.
+_Avoid_: Nearly expired, warning, amber
+
 **Confidence Floor**:
 The per-Manifest threshold a Sighting must clear to count as evidence. A
 Sighting below the floor contributes Indeterminate, not Fail.

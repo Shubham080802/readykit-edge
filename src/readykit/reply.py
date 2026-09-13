@@ -15,8 +15,10 @@ Two rules govern this module:
 
 from __future__ import annotations
 
+import calendar
 import json
 import re
+from datetime import date, datetime
 from typing import Any
 
 from .domain import Manifest, Presence, Sighting
@@ -35,7 +37,8 @@ _FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
 _SCHEMA_HINT = """Reply with JSON only, in exactly this shape:
 
 {"items": [{"key": "<item key>", "presence": "<found|absent|damaged|unreadable>",
-            "confidence": <0.0-1.0>, "note": "<short observation>"}]}
+            "confidence": <0.0-1.0>, "note": "<short observation>",
+            "expiry": "<YYYY-MM or YYYY-MM-DD, omit if not required or not legible>"}]}
 """
 
 
@@ -53,7 +56,7 @@ def build_prompt(manifest: Manifest) -> str:
         "For EACH item listed below, report exactly one presence value:",
         "  found      - the item is visibly present and undamaged",
         "  absent     - you can see where it belongs and it is not there",
-        "  damaged    - the item is present but broken, expired, or unusable",
+        "  damaged    - the item is present but broken, torn, or unusable",
         "  unreadable - you cannot tell; it is occluded, out of frame, or unclear",
         "",
         "Do not guess. If you are unsure, answer 'unreadable'. Reporting",
@@ -61,9 +64,27 @@ def build_prompt(manifest: Manifest) -> str:
         "",
         "Items:",
     ]
+    expiry_items = [item for item in manifest.items if item.expiry_checked]
     for item in manifest.items:
         quantity = f" (quantity {item.quantity})" if item.quantity > 1 else ""
-        lines.append(f"  - key={item.key}: {item.label}{quantity}")
+        expiry = " [READ THE EXPIRY DATE]" if item.expiry_checked else ""
+        lines.append(f"  - key={item.key}: {item.label}{quantity}{expiry}")
+
+    if expiry_items:
+        lines.extend(
+            [
+                "",
+                "For items marked [READ THE EXPIRY DATE], also report the "
+                "printed use-by date",
+                "in the 'expiry' field, as YYYY-MM-DD, or YYYY-MM when only a "
+                "month is printed.",
+                "Transcribe what is printed. Do not infer a date from the "
+                "packaging's appearance,",
+                "and omit the field entirely if you cannot read it - a missing "
+                "date is handled",
+                "safely, an invented one is not.",
+            ]
+        )
     lines.extend(["", _SCHEMA_HINT])
     return "\n".join(lines)
 
@@ -138,7 +159,44 @@ def _parse_entry(entry: Any, known: set[str]) -> Sighting | None:
         presence=presence,
         confidence=confidence,
         note=note[:200],
+        expiry=_parse_expiry(entry.get("expiry")),
     )
+
+
+def _parse_expiry(value: Any) -> date | None:
+    """Read a printed use-by date. Anything unrecognised becomes None.
+
+    None means "no date established", which upstream is unresolved for an item
+    that needs one. Guessing a date here would be the one place a parser could
+    manufacture compliance, so every ambiguity resolves to None.
+
+    Month precision is resolved to the **last day of that month**, which is the
+    pharmaceutical convention: "EXP 2026-03" means usable through 31 March.
+    Resolving it to the first of the month instead would retire stock up to a
+    month early - safe, but wrong, and it would erode trust in the system.
+    """
+    if not isinstance(value, str):
+        return None
+
+    text = value.strip()
+    if not text:
+        return None
+
+    for pattern in ("%Y-%m-%d", "%Y/%m/%d", "%d %b %Y", "%d %B %Y"):
+        try:
+            return datetime.strptime(text, pattern).date()
+        except ValueError:
+            continue
+
+    for pattern in ("%Y-%m", "%Y/%m", "%m/%Y", "%b %Y", "%B %Y"):
+        try:
+            parsed = datetime.strptime(text, pattern).date()
+        except ValueError:
+            continue
+        last_day = calendar.monthrange(parsed.year, parsed.month)[1]
+        return parsed.replace(day=last_day)
+
+    return None
 
 
 def _parse_presence(value: Any) -> Presence:

@@ -163,6 +163,36 @@ class TestWatchdog:
         assert node.indicator is Indicator.OFF
         assert not node.link_is_stale
 
+    def test_recovering_from_stale_restores_the_verdict_not_a_blank(
+        self, link: LoopbackLink, node: VirtualActuatorNode, clock: FakeClock
+    ) -> None:
+        """A FAIL must survive a brief cable interruption.
+
+        Caught on the console: it showed indicator "off" beside buzzer
+        "sounding" after a REJECT went stale and then recovered. The failure
+        the operator most needs to see was the one the display dropped.
+        """
+        link.send(Command.REJECT, "expired chest seal")
+
+        clock.advance(3000)
+        node.tick()
+        assert node.indicator.value == "stale"
+
+        link.send(Command.PING)
+        assert node.indicator is Indicator.FAIL
+        assert node.buzzer is True
+
+    def test_a_pass_indication_clears_when_its_hold_expires(
+        self, link: LoopbackLink, node: VirtualActuatorNode, clock: FakeClock
+    ) -> None:
+        """A green light must not outlive the open window it refers to."""
+        link.send(Command.RELEASE, "1000")
+        clock.advance(1100)
+        link.send(Command.PING)
+        node.tick()
+        assert node.latch is LatchState.ENGAGED
+        assert node.indicator is Indicator.OFF
+
     def test_a_heartbeat_does_not_clear_a_real_verdict_indicator(
         self, link: LoopbackLink, node: VirtualActuatorNode
     ) -> None:
