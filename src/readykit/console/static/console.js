@@ -158,6 +158,26 @@ function renderBlueprintTally(tally) {
   $("bp-agreed").textContent = String(tally.agreed);
 }
 
+/* -------------------------------------------------------------------- chain */
+
+/* A broken audit chain means the record of what this device decided can no
+ * longer be trusted. That is not something an operator should have to run a
+ * command to find out, so it sits in the masthead permanently. */
+function renderChain(chain) {
+  const pill = $("chain");
+  if (!pill || !chain) return;
+  pill.dataset.ok = String(chain.ok);
+  pill.textContent =
+    chain.status === "intact"
+      ? `audit chain verified · ${chain.verified}`
+      : chain.status === "empty"
+        ? "audit chain empty"
+        : chain.status === "truncated"
+          ? "audit chain truncated"
+          : "AUDIT CHAIN BROKEN";
+  pill.title = chain.detail || "";
+}
+
 /* ---------------------------------------------------------------- checklist */
 
 function renderChecklist(last) {
@@ -352,16 +372,28 @@ function describeScene() {
   $("scene-description").textContent = chosen ? chosen.description : " ";
 }
 
+/* Each panel renders independently. A panel that throws must not take the
+ * rest of the console with it - losing the latch readout because a tally
+ * failed to draw would be the worst possible failure mode on this screen. */
+function renderSafely(name, render) {
+  try {
+    render();
+  } catch (error) {
+    console.error(`[readykit] ${name} failed to render:`, error);
+  }
+}
+
 async function refresh() {
   const [state, records] = await Promise.all([
     getJSON("/api/state"),
     getJSON("/api/records?limit=25"),
   ]);
-  renderVerdict(state.last, state.telemetry);
-  renderBlueprintTally(state.blueprint_tally);
-  renderChecklist(state.last);
-  renderTelemetry(state.telemetry);
-  renderRecords(records.records, state.tally);
+  renderSafely("verdict", () => renderVerdict(state.last, state.telemetry));
+  renderSafely("telemetry", () => renderTelemetry(state.telemetry));
+  renderSafely("checklist", () => renderChecklist(state.last));
+  renderSafely("blueprint", () => renderBlueprintTally(state.blueprint_tally));
+  renderSafely("chain", () => renderChain(state.chain));
+  renderSafely("records", () => renderRecords(records.records, state.tally));
 }
 
 async function runInspection() {

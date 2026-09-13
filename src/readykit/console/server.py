@@ -61,7 +61,6 @@ def create_app(
     try:
         from fastapi import FastAPI, HTTPException
         from fastapi.responses import FileResponse, JSONResponse
-        from fastapi.staticfiles import StaticFiles
     except ImportError as exc:  # pragma: no cover - depends on console extras
         raise RuntimeError(
             "FastAPI is not installed. Install the console extras: "
@@ -84,9 +83,22 @@ def create_app(
         )
         return InspectionEngine(manifest, source, engine, link)
 
+    # The console must never serve a stale asset. A cached index.html against
+    # a fresh console.js is how a page half-updates and throws, which is not
+    # something to discover during a demo - and this is a local, air-gapped
+    # device where caching buys nothing anyway.
+    no_store = {"Cache-Control": "no-store, max-age=0"}
+
     @app.get("/")
     def index() -> Any:
-        return FileResponse(STATIC / "index.html")
+        return FileResponse(STATIC / "index.html", headers=no_store)
+
+    @app.get("/static/{filename}")
+    def static_asset(filename: str) -> Any:
+        target = (STATIC / filename).resolve()
+        if target.parent != STATIC.resolve() or not target.is_file():
+            raise HTTPException(status_code=404, detail="not found")
+        return FileResponse(target, headers=no_store)
 
     @app.get("/api/manifest")
     def get_manifest() -> Any:
@@ -155,13 +167,13 @@ def create_app(
                 "telemetry": _telemetry(state.node),
                 "tally": state.log.tally(),
                 "blueprint_tally": _blueprint_tally(state.log),
+                "chain": _chain(state.log),
             }
 
     @app.get("/api/records")
     def get_records(limit: int = 25) -> Any:
         return {"records": state.log.read(limit=max(1, min(limit, 200)))}
 
-    app.mount("/static", StaticFiles(directory=STATIC), name="static")
     return app
 
 
@@ -233,6 +245,23 @@ def _blueprint(outcome: Any) -> dict[str, Any] | None:
         "unlocks": comparison.blueprint_unlocks,
         "divergence": comparison.divergence.value,
         "reason": comparison.reason,
+    }
+
+
+def _chain(log: InspectionLog) -> dict[str, Any]:
+    """Whether the audit trail still verifies.
+
+    Surfaced live rather than only on demand: a broken chain means the record
+    of what this device decided can no longer be trusted, and that is not
+    something an operator should have to run a command to discover.
+    """
+    result = log.verify()
+    return {
+        "status": result.status.value,
+        "ok": result.ok,
+        "verified": result.verified,
+        "total": result.total,
+        "detail": result.detail,
     }
 
 

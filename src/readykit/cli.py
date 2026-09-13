@@ -22,7 +22,7 @@ from .inference import load_engine
 from .inference.base import InferenceEngine, InferenceError
 from .inference.simulated import SimulatedEngine
 from .naive import Divergence
-from .recorder import InspectionLog
+from .recorder import ChainStatus, InspectionLog
 
 RESET = "\033[0m"
 DIM = "\033[2m"
@@ -86,6 +86,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     compare_cmd.add_argument("--manifest", type=Path, required=True)
     compare_cmd.set_defaults(handler=_cmd_compare)
+
+    audit = sub.add_parser(
+        "audit", help="verify the inspection record chain has not been altered"
+    )
+    audit.add_argument("--log", type=Path, default=Path("records/inspections.jsonl"))
+    audit.set_defaults(handler=_cmd_audit)
 
     records = sub.add_parser("records", help="show recent inspection records")
     records.add_argument("--log", type=Path, default=Path("records/inspections.jsonl"))
@@ -198,6 +204,45 @@ def _cmd_scenes(args: argparse.Namespace) -> int:
     )
     print(f"  {'damaged-<key>':<16} {DIM}mark one item damaged{RESET}")
     return 0
+
+
+def _cmd_audit(args: argparse.Namespace) -> int:
+    log = InspectionLog(args.log)
+    result = log.verify()
+
+    green = "\033[38;5;41m"
+    red = "\033[38;5;203m"
+    amber = "\033[38;5;221m"
+
+    colour, text = {
+        ChainStatus.INTACT: (green, f"chain intact over {result.verified} records"),
+        ChainStatus.EMPTY: (DIM, "no records yet"),
+        ChainStatus.TAMPERED: (red, "CHAIN BROKEN"),
+        ChainStatus.TRUNCATED: (amber, "final record incomplete"),
+        ChainStatus.UNCHAINED: (amber, "records are not chained"),
+    }[result.status]
+
+    print(f"\n  {colour}{BOLD}{text}{RESET}  {DIM}{args.log}{RESET}")
+
+    if result.detail:
+        print(f"  {result.detail}")
+    if result.broken_at is not None:
+        print(
+            f"  {DIM}{result.verified} of {result.total} records verified "
+            f"before record {result.broken_at}{RESET}"
+        )
+
+    if result.status is ChainStatus.INTACT:
+        head = log.head()
+        if head:
+            print(f"  {DIM}head {head['hash']}{RESET}")
+
+    print(
+        f"\n  {DIM}Tamper-evident, not tamper-proof: this detects editing, "
+        f"deletion and reordering,{RESET}\n"
+        f"  {DIM}not an attacker who rebuilds every subsequent hash.{RESET}\n"
+    )
+    return 0 if result.ok else 3
 
 
 def _cmd_records(args: argparse.Namespace) -> int:

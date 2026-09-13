@@ -259,7 +259,17 @@ class InspectionRecord:
     released the latch where this system did not."""
 
     def to_json_line(self) -> str:
-        payload = {
+        return json.dumps(
+            self.to_payload(), separators=(",", ":"), sort_keys=True
+        )
+
+    def to_payload(self) -> dict[str, object]:
+        """The record's own content, without any chain metadata.
+
+        The InspectionLog adds sequence and hash fields when it writes; a
+        record does not know or care where in the chain it lands.
+        """
+        payload: dict[str, object] = {
             "inspection_id": self.inspection_id,
             "manifest_id": self.manifest_id,
             "started_at": self.started_at.astimezone(UTC).isoformat(),
@@ -289,7 +299,7 @@ class InspectionRecord:
             "blueprint_signal": self.blueprint_signal,
             "blueprint_divergence": self.blueprint_divergence,
         }
-        return json.dumps(payload, separators=(",", ":"), sort_keys=True)
+        return payload
 
 
 def resolve_verdict(
