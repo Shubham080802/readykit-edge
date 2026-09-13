@@ -101,6 +101,64 @@ python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/readykit inspect --manifest manifests/trauma-kit-a.json --scene occluded
 ```
 
+## Presence is not serviceability
+
+A kit can be complete, undamaged, every tick green — and still fail:
+
+```bash
+.venv/bin/readykit inspect --manifest manifests/trauma-kit-a.json --scene expired
+```
+
+```
+  FAIL  latch engaged
+  Kit non-compliant: expired Vented Chest Seal
+    + Windlass Tourniquet    found      0.97
+    x Vented Chest Seal      found      0.96  EXPIRED 2026-07-30
+    + Trauma Shears          found      0.94
+    ...
+```
+
+A sealed, undamaged, correctly-placed packet of expired haemostatic gauze
+satisfies every visual check and is still not something to hand a medic.
+Reading a printed date off crumpled foil and reasoning about it is work object
+detection cannot do — it is why this is a vision-language model.
+
+Expiry obeys the same rule as everything else rather than getting a special
+case. A date that could not be read is **unresolved**, not assumed fine, so a
+smudged use-by fails closed exactly like an occluded item. The prompt tells the
+model to omit the field rather than guess, because an invented expiry is the
+one hallucination that would manufacture a pass.
+
+## The audit trail
+
+Every record is hash-chained to the one before it:
+
+```bash
+.venv/bin/readykit audit
+```
+
+```
+  chain intact over 4 records
+  head 968db8eeaeddd07590cdf13c73c98912
+```
+
+Edit a recorded `FAIL` into a `PASS` and it names the record you touched:
+
+```
+  CHAIN BROKEN
+  record 1 (9b71768bdd1e) does not match its own hash - its contents were
+  edited after it was written
+```
+
+Losing power mid-write is reported as `TRUNCATED`, not as tampering, and
+appending afterwards continues the chain from the last complete record. An
+air-gapped field device will lose power eventually, and crying wolf about it
+would train operators to ignore the alarm.
+
+This is tamper-**evident**, not tamper-proof — it does not stop someone with
+write access who rebuilds every subsequent hash. The CLI says so every time it
+runs.
+
 ## Running it on the hardware
 
 ```bash
@@ -163,6 +221,25 @@ Domain vocabulary is defined in [`CONTEXT.md`](CONTEXT.md). The terms there are
 load-bearing; each lists what it must not be confused with.
 
 Visual language for the operator console is [`DESIGN.md`](DESIGN.md).
+
+## Other commands
+
+```bash
+readykit demo     --manifest manifests/trauma-kit-a.json   # scripted five-beat sequence
+readykit compare  --manifest manifests/trauma-kit-a.json   # every scene vs the original design
+readykit bench    --manifest manifests/trauma-kit-a.json   # measured inference latency
+readykit audit                                             # verify the record chain
+readykit scenes                                            # list simulator scenes
+```
+
+`--frames N` aggregates several looks per inspection. Frames that disagree
+produce doubt rather than an average: two frames saying found and two saying
+absent is not "probably fine", it is a kit nobody has established anything
+about.
+
+For the pitch, [`docs/demo.md`](docs/demo.md) is a timed run-of-show with the
+questions judges actually ask, and [`docs/one-pager.md`](docs/one-pager.md) is
+the handout.
 
 ## Development
 
