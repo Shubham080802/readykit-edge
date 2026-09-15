@@ -4,8 +4,8 @@ Air-gapped visual inspection for equipment kits, with physical actuation.
 
 A camera watches an equipment kit. A vision-language model running locally on a
 Qualcomm Hexagon NPU decides whether the kit is complete and serviceable. That
-decision drives a solenoid latch on an Arduino UNO Q. Nothing leaves the device
-— no cloud, no network call, no remote fallback.
+decision drives a fail-secure latch on an Arduino UNO Q. Nothing leaves the
+device — no cloud, no network call, no remote fallback.
 
 Built for **Qualcomm Snapdragon® X Elite** (inference) + **Arduino® UNO™ Q**
 (actuation).
@@ -306,7 +306,10 @@ Runs end to end in simulation; every fail-closed path is covered by tests.
 **Not yet run on the hardware.** The GenieX and pyserial backends are written
 against their documented interfaces, and the C firmware parser is cross-checked
 against the Python encoder by a test that compiles it — but nothing here has
-driven a real solenoid. Treat the on-device behaviour as unproven until the
+been flashed. The sketch is compiled on every CI run under five different pin
+configurations, and the indicator logic is asserted rather than eyeballed, so
+what remains unproven is the STM32U585 toolchain and the board's own macros,
+not the code. Treat the on-device behaviour as unproven until the
 [bring-up checklist](docs/deployment.md#bring-up-checklist) has been worked
 through.
 

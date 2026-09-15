@@ -29,9 +29,12 @@ jobs:
       - name: Types
         run: mypy
 
-      # Builds firmware/mcu_actuator/protocol.h against a stub Arduino.h and
-      # checks the MCU parser agrees with the Python encoder. The safety
-      # argument assumes these two implementations match; this is what
-      # enforces it.
+      # Also builds the firmware against a stub Arduino.h, three ways:
+      #   - the whole sketch, under five pin configurations, so every branch
+      #     of the onboard-LED guards is compiled at least once
+      #   - rkRenderPanel(), asserting what the LEDs actually show
+      #   - protocol.h, checking the MCU parser agrees with the Python encoder
+      # The safety argument assumes the two protocol implementations match and
+      # that the panel never contradicts the lock. This is what enforces both.
       - name: Tests
         run: pytest -q

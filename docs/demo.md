@@ -21,9 +21,14 @@ Console on the big screen. Terminal on your laptop. Have
 `readykit demo --dwell 6` ready as the fallback if the hardware misbehaves —
 it runs the same five beats in the same order and needs no camera.
 
-If the board is dead, `--link loopback` runs everything except the solenoid.
+If the board is dead, `--link loopback` runs everything except the board.
 Say so out loud when you do it. A demo that looks identical whether or not a
 real latch moved is exactly what this project argues against.
+
+**On the board, watch the two LEDs.** The left one is the latch — red locked,
+green open, and it never blinks or goes dark. The right one is the verdict —
+green pass, red fail, amber *could not tell*, blue host gone. Every beat below
+is visible on those two lights, and they are what you point at.
 
 ---
 
@@ -42,12 +47,43 @@ Point at the `air-gapped · no network` pill.
 
 ### 0:20 — It works (25s)
 
-Complete kit under the camera. **Latch clunks open.** Green across the
-checklist.
+Complete kit under the camera. **Latch LED flips red to green.** Green across
+the checklist.
 
 > Seven items, all found, all in date. The latch releases for five seconds.
 
-Let them hear the solenoid. That sound is the demo.
+That red-to-green is the demo. Let it sit for a second before you talk over
+it — it is the only moment in three minutes where software moves a lock.
+
+### Optional — It keeps watching (30s)
+
+> **Costs 30s.** If you are tight, cut this and mention it in Q&A instead; if
+> you are running the `sentinel` loop anyway, it is the strongest live moment
+> in the demo because nothing is staged.
+
+With the latch still open from the beat above, reach into the tray.
+
+**Nothing happens.** Latch LED stays green.
+
+> It can see my hand. It can't see the kit. It does not slam the door on me
+> for using it — that's what "could not tell" means while the door is already
+> open.
+
+Now lift the shears out and hold them up.
+
+**Latch LED goes green to red, under your hand.**
+
+> That's not a second scan I triggered. It never stopped watching. Checking
+> once and then trusting the room is how cabinets get emptied.
+
+Put the shears back. It reopens on its own, no reset.
+
+> Opening takes a streak of clean frames, because opening a lock on one lucky
+> frame is how you get a system nobody trusts. Closing is quicker, because
+> that's taking back something already given. Those are different thresholds
+> on purpose.
+
+---
 
 ### 0:45 — The thing everyone gets wrong (45s)
 
@@ -88,6 +124,10 @@ Point at the red date.
 ### 2:10 — Failing closed (30s)
 
 Drape a cloth over the tray. Run it.
+
+**Amber on the right. Still red on the left.** Point at both at once — that
+pair of lights is the entire thesis, and it needs no explanation before you
+give one.
 
 > INDETERMINATE. Not pass, not fail — we could not establish anything, so
 > nothing opens.

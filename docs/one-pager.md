@@ -1,7 +1,7 @@
 # ReadyKit Edge
 
 **Air-gapped visual kit inspection with physical actuation.**
-Snapdragon® X Elite (on-device VLM via GenieX) → Arduino® UNO™ Q (solenoid latch)
+Snapdragon® X Elite (on-device VLM via GenieX) → Arduino® UNO™ Q (latch control)
 
 github.com/taranggoyal70/readykit-edge
 
@@ -18,8 +18,13 @@ clipboards lie.
 
 A camera watches an equipment kit. A vision-language model running locally on
 the Hexagon NPU decides whether the kit is **complete, undamaged, and in date**.
-That decision drives a solenoid latch: a compliant kit unlocks, anything else
-stays shut. No network, no cloud, no remote fallback.
+That decision drives a latch: a compliant kit unlocks, anything else stays
+shut. No network, no cloud, no remote fallback.
+
+The latch line is fail-secure — de-energised means locked — so a crash, a
+pulled cable or a flat battery all land on *shut*. That is a property of the
+pin, which is why it holds whether the pin is driving a 12 V solenoid in an
+enclosure or an LED on a bare board.
 
 ## The idea the project is actually about
 

@@ -21,15 +21,46 @@
  * This mirrors VirtualActuatorNode in src/readykit/bridge/loopback.py, which
  * is where the behaviour is tested. Change one, change the other.
  *
- * Wiring (per the hardware pinout):
- *   D2  Green LED  + 220R to GND     pass
- *   D3  Red LED    + 220R to GND     fail / hold / stale
- *   D4  Piezo buzzer (active)        fail only
- *   D5  Relay module IN              12V solenoid latch
- *   GND Common ground rail
+ * Wiring: none. Everything the demonstration needs is already on the board.
+ * The header pins below are the deployed unit's lines - relay coil, sounder,
+ * discrete lamps - and they are driven whether or not anything is attached,
+ * so the same binary runs on a bare board and in an enclosure.
+ *
+ *   D2  Green lamp      (optional)   pass
+ *   D3  Red lamp        (optional)   fail / hold / stale
+ *   D4  Piezo sounder   (optional)   fail only
+ *   D5  Relay module IN (optional)   12V solenoid latch
  */
 
 #include "protocol.h"
+#include "indicators.h"
+
+/* -------------------------------------------------------------- onboard */
+
+/*
+ * The UNO Q carries two RGB LEDs wired straight to the STM32U585 (PH10-PH12
+ * and PH13-PH15), which is exactly the two signals this system has to show:
+ * what the lock is doing, and what the model concluded. They are active-LOW.
+ *
+ * Arduino cores disagree about what these channels are called, and guessing
+ * wrong means a sketch that will not compile - at a bench, with one board and
+ * no spares, an hour before a demo. So every name is guarded and there is a
+ * fallback at each step. Colour is a nicety; compiling is not.
+ *
+ * To pin the mapping by hand, define RK_VERDICT_R and friends with -D or just
+ * above this block, and the guards step aside.
+ */
+#if !defined(RK_VERDICT_R)
+  #if defined(LEDR) && defined(LEDG) && defined(LEDB)
+    #define RK_VERDICT_R LEDR
+    #define RK_VERDICT_G LEDG
+    #define RK_VERDICT_B LEDB
+  #elif defined(LED_RED) && defined(LED_GREEN) && defined(LED_BLUE)
+    #define RK_VERDICT_R LED_RED
+    #define RK_VERDICT_G LED_GREEN
+    #define RK_VERDICT_B LED_BLUE
+  #endif
+#endif
 
 static const uint8_t PIN_GREEN_LED = 2;
 static const uint8_t PIN_RED_LED   = 3;
@@ -47,11 +78,6 @@ static const uint8_t SOLENOID_UNLOCKED = HIGH;
  * VirtualActuatorNode.link_timeout_ms. */
 static const uint32_t LINK_TIMEOUT_MS = 2000;
 static const uint32_t MAX_HOLD_MS     = 60000;
-
-enum LatchState : uint8_t { LATCH_ENGAGED = 0, LATCH_RELEASED };
-enum Indicator : uint8_t {
-  IND_OFF = 0, IND_PASS, IND_FAIL, IND_HOLD, IND_STALE
-};
 
 static LatchState latch          = LATCH_ENGAGED;
 static Indicator  indicator      = IND_OFF;
@@ -95,52 +121,43 @@ static void releaseLatch(uint32_t holdMs) {
 
 /* ------------------------------------------------------------- indicators */
 
-/* Driven from millis() on every pass of loop() rather than from a blocking
- * blink routine, so the alarm pattern never costs us serial responsiveness. */
+/* Applies whatever rkRenderPanel() decided. Driven from millis() on every
+ * pass of loop() rather than from a blocking blink routine, so the alarm
+ * pattern never costs us serial responsiveness.
+ *
+ * The decision of what to show lives in indicators.h and is tested on a host
+ * machine; this function only knows how to push it at pins. */
+
+#if defined(RK_VERDICT_R)
+static void writeRgb(uint8_t rPin, uint8_t gPin, uint8_t bPin, RkRgb colour) {
+  /* Active LOW: a channel lights when its pin is pulled down. */
+  digitalWrite(rPin, colour.r ? LOW : HIGH);
+  digitalWrite(gPin, colour.g ? LOW : HIGH);
+  digitalWrite(bPin, colour.b ? LOW : HIGH);
+}
+#endif
+
 static void updateIndicators() {
-  const uint32_t now = millis();
+  const RkPanel panel = rkRenderPanel(indicator, latch, buzzerOn, millis());
 
-  switch (indicator) {
-    case IND_PASS:
-      digitalWrite(PIN_GREEN_LED, HIGH);
-      digitalWrite(PIN_RED_LED, LOW);
-      break;
+#if defined(RK_VERDICT_R)
+  writeRgb(RK_VERDICT_R, RK_VERDICT_G, RK_VERDICT_B, panel.verdict);
+#endif
 
-    case IND_FAIL: {
-      /* Fast urgent blink, buzzer in step with it. */
-      const bool on = ((now / 250) % 2) == 0;
-      digitalWrite(PIN_GREEN_LED, LOW);
-      digitalWrite(PIN_RED_LED, on ? HIGH : LOW);
-      digitalWrite(PIN_BUZZER, (buzzerOn && on) ? HIGH : LOW);
-      return;
-    }
+#if defined(LED_BUILTIN)
+  /* The latch, on whatever single lamp is left. Lit means OPEN, deliberately:
+   * a dead, unpowered or unflashed board then reads as locked - which is the
+   * truth, because the relay line falls to its de-energised state at exactly
+   * the same moment. The failure of this indicator and the failure of the
+   * lock agree. */
+  digitalWrite(LED_BUILTIN, latch == LATCH_RELEASED ? HIGH : LOW);
+#endif
 
-    case IND_HOLD: {
-      /* Slow, silent pulse. "I cannot see your kit" must not look or sound
-       * like "your kit is wrong" - the operator's next move differs. */
-      const bool on = ((now / 900) % 2) == 0;
-      digitalWrite(PIN_GREEN_LED, LOW);
-      digitalWrite(PIN_RED_LED, on ? HIGH : LOW);
-      break;
-    }
-
-    case IND_STALE: {
-      /* Alternating amber-ish wig-wag: the host is gone, so nothing at all
-       * is known about the kit in front of the camera. */
-      const bool phase = ((now / 600) % 2) == 0;
-      digitalWrite(PIN_GREEN_LED, phase ? HIGH : LOW);
-      digitalWrite(PIN_RED_LED, phase ? LOW : HIGH);
-      break;
-    }
-
-    case IND_OFF:
-    default:
-      digitalWrite(PIN_GREEN_LED, LOW);
-      digitalWrite(PIN_RED_LED, LOW);
-      break;
-  }
-
-  digitalWrite(PIN_BUZZER, LOW);
+  /* The deployed unit's discrete lines. Nothing is attached on a bare board
+   * and driving them costs nothing, so one binary covers both. */
+  digitalWrite(PIN_GREEN_LED, panel.verdict.g ? HIGH : LOW);
+  digitalWrite(PIN_RED_LED, panel.verdict.r ? HIGH : LOW);
+  digitalWrite(PIN_BUZZER, panel.buzzer ? HIGH : LOW);
 }
 
 /* -------------------------------------------------------------- watchdog */
@@ -267,6 +284,18 @@ static void readSerial() {
 void setup() {
   pinMode(PIN_SOLENOID, OUTPUT);
   digitalWrite(PIN_SOLENOID, SOLENOID_LOCKED);  /* before anything else */
+
+#if defined(RK_VERDICT_R)
+  pinMode(RK_VERDICT_R, OUTPUT);
+  pinMode(RK_VERDICT_G, OUTPUT);
+  pinMode(RK_VERDICT_B, OUTPUT);
+  writeRgb(RK_VERDICT_R, RK_VERDICT_G, RK_VERDICT_B, rkDark());
+#endif
+
+#if defined(LED_BUILTIN)
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, LOW);   /* latch is engaged; lamp says so */
+#endif
 
   pinMode(PIN_GREEN_LED, OUTPUT);
   pinMode(PIN_RED_LED, OUTPUT);

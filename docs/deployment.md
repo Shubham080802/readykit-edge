@@ -1,7 +1,7 @@
 # Deployment
 
 Taking ReadyKit Edge from a laptop simulation to a Snapdragon X Elite host
-driving a real solenoid on an Arduino UNO Q.
+driving an Arduino UNO Q — on its own, or wired to a real solenoid.
 
 Everything in this document has been designed and unit-tested but **not yet
 run on the hardware**. The [bring-up checklist](#bring-up-checklist) is written
@@ -110,27 +110,81 @@ Or open `firmware/mcu_actuator/mcu_actuator.ino` in the Arduino IDE or Arduino
 App Lab, select the UNO Q board, and upload to the **STM32U585 MCU core** (not
 the Linux side).
 
-Confirm the C parser still agrees with the Python host before flashing:
+Check the firmware on the host before flashing:
 
 ```bash
-.venv/bin/python -m pytest tests/test_firmware_protocol.py
+.venv/bin/python -m pytest tests/test_firmware_sketch.py \
+                           tests/test_firmware_indicators.py \
+                           tests/test_firmware_protocol.py
 ```
 
-That compiles `protocol.h` against a stub `Arduino.h` and feeds it frames from
-`readykit.protocol`. If you edited either side of the protocol, this is the
-test that catches the divergence.
+Three separate things, all cheap:
+
+- **`test_firmware_sketch`** compiles the real `.ino` against a stub
+  `Arduino.h`, five times, with different LED macros defined each time so
+  every branch of the pin guards gets read. A sketch that will not build is a
+  bad thing to discover at a bench with one board.
+- **`test_firmware_indicators`** drives the real `rkRenderPanel()` and asserts
+  what the LEDs show — that red means locked, that amber is not red, that the
+  buzzer never sounds out of step with the light.
+- **`test_firmware_protocol`** feeds the C parser frames from
+  `readykit.protocol`. If you edited either side of the protocol, this is what
+  catches the divergence.
+
+None of them prove anything about the STM32U585 toolchain or the board's own
+pin macros. Only flashing settles those. They catch the typo, not the target.
 
 ---
 
-## 3. Wire it
+## 3. The board on its own
+
+**You do not need to wire anything.** A bare UNO Q, one USB-C cable and no
+other parts is a complete, honest demonstration — and the sketch is written so
+the same binary runs on a bare board and inside an enclosure.
+
+The UNO Q carries two RGB LEDs wired straight to the STM32U585, which happens
+to be exactly the two signals this system has to show:
+
+| LED | Answers | Shows |
+|---|---|---|
+| **Latch** | Is it locked *right now*? | Red — engaged. Green — released. Never blinks, never dark. |
+| **Verdict** | What did the model conclude? | Green — pass. Red fast blink — fail. **Amber slow pulse — could not tell.** Blue wig-wag — host is gone. |
+
+Keeping those apart is the point of having two. The latch light reports the
+lock and nothing else, so it can never disagree with the physical state a
+person is about to act on. The verdict light reports the model, *including*
+the case where the model concluded nothing.
+
+Amber sitting beside red is the whole argument in one glance: the kit could
+not be read, so the latch did not move. Point at that.
+
+The colours are worth more than the discrete red/green pair they replace. On
+the old two-LED build, "your kit is wrong" and "I cannot see your kit" were
+both red and differed only in blink rate — and rate is the cue people read
+last. They are now different colours, which is the cue people read first.
+
+> The sketch guards the LED macro names and falls back to `LED_BUILTIN` if a
+> core spells them differently, so it compiles either way. In that fallback the
+> single lamp is lit **only when the latch is open** — so a dead, unpowered or
+> unflashed board reads as locked, which is the truth, because the relay line
+> falls to its de-energised state at the same moment.
+
+### When you do add an enclosure
+
+The header pins are the deployed unit's lines. Nothing is attached on a bare
+board, and the firmware drives them anyway.
 
 | Component | Pin | Notes |
 |---|---|---|
-| Green status LED | D2 | 220 Ω to GND. Pass. |
-| Red status LED | D3 | 220 Ω to GND. Fail (fast blink), hold (slow pulse). |
+| Green status lamp | D2 | 220 Ω to GND. Pass. |
+| Red status lamp | D3 | 220 Ω to GND. Fail (fast blink), hold (slow pulse). |
 | Piezo buzzer | D4 | Active buzzer. Fail only. |
 | Relay module IN | D5 | Isolated 5 V relay switching the 12 V solenoid. |
-| Ground | GND | Common rail across MCU, LEDs, relay, and both supplies. |
+| Ground | GND | Common rail across MCU, lamps, relay, and both supplies. |
+
+Until then, the audible alarm comes from the host — the console plays it
+through the laptop's speakers, which carries across a noisy room considerably
+better than a piezo does anyway.
 
 ### Use a fail-secure latch
 
@@ -147,6 +201,12 @@ keeping it shut, and you need a different mechanism.
 
 Power the solenoid from its own 12 V supply, not from the board. Fit a flyback
 diode across the coil.
+
+Note that the safety property is a property of **the pin**, not of the part
+hanging off it. D5 goes LOW on reset, on power loss, on a stale link and on
+hold expiry whether a relay coil or nothing at all is attached. That is why
+the bare-board demonstration is not a compromise: you are watching the real
+control logic, with a $6 part left off the end of it.
 
 ### Which serial port
 
@@ -211,17 +271,26 @@ step with the most unknowns
 
 **Resting state**
 
-- [ ] Power on with no host attached. Latch is locked, both LEDs dark.
-- [ ] Reset the MCU while the latch is released. It locks immediately.
-- [ ] Pull the 12 V supply while released. It locks.
+- [ ] Power on with no host attached. Latch LED red, verdict LED dark.
+- [ ] Reset the MCU while the latch is released. It locks immediately, and the
+      latch LED goes red before anything else happens.
+- [ ] Pull the USB-C cable while released. The board goes dark — which reads
+      as locked, because the latch is the one thing never shown by an unlit
+      LED.
 
 **Commands**
 
-- [ ] `PASS` releases the latch and lights green for the manifest's hold.
+- [ ] `PASS` releases the latch: latch LED green, verdict LED green, for the
+      manifest's hold.
 - [ ] The latch re-engages when the hold expires, with the host still running.
-- [ ] `FAIL` keeps it locked, blinks red fast, sounds the buzzer.
-- [ ] `INDETERMINATE` keeps it locked, pulses red slowly, **stays silent** —
-      it must be distinguishable from `FAIL` across the room.
+      Latch LED returns to red on its own.
+- [ ] `FAIL` keeps the latch LED **red** and blinks the verdict LED red fast.
+- [ ] `INDETERMINATE` keeps the latch LED **red** and pulses the verdict LED
+      **amber**, slowly. Stand back and check you can still tell it from
+      `FAIL` across the room — different colour and different rate, so it
+      survives both a glance and a photograph.
+- [ ] Throughout all of the above, confirm the latch LED never once disagrees
+      with what the console says the latch is doing.
 
 **The watchdog**
 

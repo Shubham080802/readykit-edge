@@ -76,8 +76,9 @@ able to actuate.
 - Python must be the **ARM64** build. Check `platform.machine()` returns
   `ARM64`; an x64 interpreter under emulation cannot load the GenieX runtime,
   and you will not discover that until two stages later.
-- **Arduino UNO Q** on a `COMn` port. The STM32U585 core drives the latch, the
-  LEDs and the buzzer.
+- **Arduino UNO Q** on a `COMn` port. The STM32U585 core drives the latch and
+  the two onboard RGB LEDs. No other parts are required — a bare board and a
+  USB-C cable is a complete demonstration.
 - `readykit doctor` reports dependencies, finds the NPU and names the COM port.
   Run it whenever something is confusing; it is faster than reasoning about
   what broke.
@@ -201,11 +202,16 @@ Do not weaken any of this — each has a test:
 with the model and the camera in the loop.
 
 **Demo at this stage:** model-to-device, which is the track's actual brief.
-Let people hear the solenoid. That sound is the demonstration.
+Watch the latch LED flip red to green. That transition is the demonstration —
+it is the one moment where software moves a lock.
 
 ---
 
 ## Stage 3 — The watch loop. This is the centrepiece.
+
+> **Built.** `src/readykit/sentinel.py`, `readykit sentinel`, 26 tests. The
+> notes below are what it was built to do; they are kept because they are also
+> what to check on the hardware.
 
 Today the system inspects when asked. Change it to watch continuously, and —
 this is the part that matters — **to keep watching after it opens the latch.**
@@ -213,8 +219,8 @@ this is the part that matters — **to keep watching after it opens the latch.**
 - Inspect on a rolling interval, aggregating several frames per decision.
 - **While the latch is released, keep inspecting.** If the kit stops matching
   its manifest mid-hold, because someone lifted an item out, send `REJECT`
-  immediately: the latch engages, the buzzer sounds, the screen flips.
-  `REJECT` already closes an open latch and there is a test for it.
+  immediately: the latch engages, the latch LED goes back to red, the screen
+  flips. `REJECT` already closes an open latch and there is a test for it.
 - The reverse must hold too: put the item back and it recovers on the next
   pass. No manual reset.
 - **Debounce.** A hand passing over the tray must not slam the lock. Require
