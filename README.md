@@ -279,6 +279,10 @@ produce doubt rather than an average: two frames saying found and two saying
 absent is not "probably fine", it is a kit nobody has established anything
 about.
 
+New to the project, or explaining it to someone who is?
+[`docs/what-we-are-building.md`](docs/what-we-are-building.md) is the whole
+thing in plain English, no jargon.
+
 For the pitch, [`docs/demo.md`](docs/demo.md) is a timed run-of-show with the
 questions judges actually ask, and [`docs/one-pager.md`](docs/one-pager.md) is
 the handout.
