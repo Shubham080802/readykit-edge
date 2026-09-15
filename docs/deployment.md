@@ -11,48 +11,62 @@ the hardware agrees rather than discovering the behaviour from scratch.
 
 ---
 
-## 1. Export a model
+## 1. Get a model onto the device
 
-The engine expects a vision-language model quantised for the Hexagon NPU, and
-deploys it through **GenieX**. Two supported sources:
+GenieX loads models **by repo id**, not from a file you export yourself. There
+is no `.qnn` to produce, no ONNX step and no converter to fight — which is
+worth knowing, because the obvious mental model (compile a graph, ship the
+binary) is not how this runtime works.
 
-### Option A — Qualcomm AI Hub Models (fastest)
+```bash
+pip install geniex
 
-1. Sign in to [Qualcomm AI Hub](https://aihub.qualcomm.com/) and pick a VLM
-   that can answer structured questions about an image. Qwen2-VL is the usual
-   starting point.
-2. Compile it for **Snapdragon X Elite**, targeting the Hexagon NPU.
-3. Download the `.qnn` artifact into `models/`.
+# Pre-compiled for the Hexagon NPU via Qualcomm AI Engine Direct
+geniex pull ai-hub-models/Qwen2.5-VL-7B-Instruct
+```
 
-Pre-optimised targets need no quantisation work of your own, so this is the
-path to take when bench time is short.
+That id is what `--model` takes:
 
-### Option B — Hugging Face
+```bash
+readykit inspect --engine geniex \
+  --model ai-hub-models/Qwen2.5-VL-7B-Instruct \
+  --device auto --camera 0 --manifest manifests/trauma-kit-a.json
+```
 
-A checkpoint from the Hub has to be converted before the NPU will run it:
+### It has to be a vision-language model
 
-1. Pull the checkpoint (e.g. `Qwen/Qwen2-VL-2B-Instruct`).
-2. Export to ONNX, then compile through the **Qualcomm AI Engine Direct SDK**
-   (`qnn-onnx-converter` → `qnn-model-lib-generator`) for Snapdragon X Elite.
-3. Quantise to INT8/INT16 with a calibration set of **real frames of the
-   actual kits**, not stock imagery — calibrating on the wrong distribution is
-   what pushes borderline confidences across the floor in the wrong direction.
-4. Drop the result into `models/`.
+ReadyKit looks at the kit; it does not read about it. GenieX returns a
+`GenieXVLM` for a multimodal model and a `GenieXLLM` for a text-only one, and
+`GenieXEngine` refuses the latter at construction. A text-only model would
+accept the prompt, silently ignore the frame, and answer confidently about an
+image it never saw — the worst failure available, so it is made impossible
+rather than documented.
 
-Budget real time for this. If the conversion fights back, fall back to Option A
-and revisit.
+### Two runtimes, and which one you are on
 
-### Either way
+| Source | Runtime | Hardware |
+|---|---|---|
+| `ai-hub-models/...` | Qualcomm AI Engine Direct | Hexagon NPU only |
+| Hugging Face GGUF, e.g. `unsloth/...-GGUF` | llama.cpp | CPU / GPU / NPU |
 
-`models/*.qnn` is gitignored — large binaries under Qualcomm's own licence,
-which do not belong in this repository.
+`--device` maps to GenieX's `device_map`: `auto` takes the first available
+runtime, and `<runtime>:<compute_unit>` pins one. Whatever you pass is written
+into the `engine` field of every Inspection Record as
+`geniex:<model>@<device>`, so "it ran on the NPU" is a claim an auditor can
+check rather than take on trust. Use `readykit bench` to get the latency
+number, and quote the engine string beside it.
 
-Nothing above changes any code. `GenieXEngine` takes `--model path/to.qnn` and
-does not care where the weights came from; a detection model like YOLOv8/v10
-works too, provided you swap in a detector that emits the same `Sighting` list.
-That is the point of the engine interface — the model is a swappable part, and
-the safety rule sits downstream of it in `resolve_verdict` where no model can
-reach.
+### Determinism
+
+`GenieXEngine` defaults to `temperature=0.1`. This model decides whether a
+latch opens, and a compliance verdict that varies between runs on an unchanged
+kit is not a verdict. There is nothing to be gained from sampling entropy here.
+
+### Nothing above changes any code
+
+`--model` is a swappable part. A detection model works too, provided you wrap
+it in something that emits the same `Sighting` list. The safety rule sits
+downstream in `resolve_verdict`, where no model can reach it.
 
 ### What the model is asked
 
@@ -144,7 +158,8 @@ The protocol is identical either way; only the device path changes.
 
 .venv/bin/readykit watch \
   --manifest manifests/trauma-kit-a.json \
-  --engine geniex --model models/readykit_vlm.qnn \
+  --engine geniex --model ai-hub-models/Qwen2.5-VL-7B-Instruct \
+  --device auto \
   --camera 0 \
   --link serial --port /dev/ttyACM0 \
   --interval 3
@@ -167,6 +182,22 @@ remote actuator. `--host` will let you override that and warns when you do.
 
 Work through this with the boards on the bench. Each step is a behaviour the
 simulator already pins — this confirms the hardware agrees.
+
+**The model, first** — everything else is useless if this fails, and it is the
+step with the most unknowns
+
+- [ ] `pip install geniex` succeeds on the Snapdragon host.
+- [ ] `geniex pull ai-hub-models/Qwen2.5-VL-7B-Instruct` completes. Note how
+      long it took and how much disk it used.
+- [ ] `geniex infer ai-hub-models/Qwen2.5-VL-7B-Instruct` runs and answers a
+      question about an image. If this does not work, nothing downstream will.
+- [ ] `readykit inspect --engine geniex --camera 0 --manifest ...` returns a
+      verdict of any kind. A verdict of INDETERMINATE here is a success: it
+      means the pipeline ran end to end and the model simply was not confident.
+- [ ] `readykit bench --engine geniex --camera 0 --runs 20` prints a latency.
+      Record the number **and** the engine string beside it.
+- [ ] The `engine` field in `readykit records` reads
+      `geniex:<model>@<device>` and names the device you expected.
 
 **Resting state**
 

@@ -152,7 +152,21 @@ def _add_pipeline_args(parser: argparse.ArgumentParser) -> None:
         choices=("simulated", "geniex"),
         help="simulated runs anywhere; geniex needs the Qualcomm SDK",
     )
-    parser.add_argument("--model", type=Path, help="path to the .qnn model (geniex)")
+    parser.add_argument(
+        "--model",
+        help=(
+            "GenieX model repo id, e.g. ai-hub-models/Qwen2.5-VL-7B-Instruct. "
+            "Not a file path - GenieX pulls bundles by id"
+        ),
+    )
+    parser.add_argument(
+        "--device",
+        default="auto",
+        help=(
+            "GenieX device_map: auto, or <runtime>:<compute_unit> to pin the "
+            "Hexagon NPU. Recorded on every inspection"
+        ),
+    )
     parser.add_argument("--scene", default="complete", help="simulator scene")
     parser.add_argument("--camera", type=int, help="camera index (real capture)")
     parser.add_argument(
@@ -423,9 +437,13 @@ def _build_source(args: argparse.Namespace) -> FrameSource:
 
 def _build_inference(args: argparse.Namespace) -> InferenceEngine:
     if args.engine == "geniex":
-        if args.model is None:
-            raise ValueError("--engine geniex requires --model path/to/model.qnn")
-        return load_engine("geniex", model_path=args.model)
+        from .inference.geniex import DEFAULT_MODEL
+
+        return load_engine(
+            "geniex",
+            model=args.model or DEFAULT_MODEL,
+            device_map=getattr(args, "device", "auto"),
+        )
     return load_engine("simulated")
 
 
