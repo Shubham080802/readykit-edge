@@ -32,14 +32,14 @@ binary) is not how this runtime works.
 pip install geniex
 
 # Pre-compiled for the Hexagon NPU via Qualcomm AI Engine Direct
-geniex pull ai-hub-models/Qwen2.5-VL-7B-Instruct
+geniex pull ai-hub-models/Qwen3-VL-4B-Instruct
 ```
 
 That id is what `--model` takes:
 
 ```bash
 readykit inspect --engine geniex \
-  --model ai-hub-models/Qwen2.5-VL-7B-Instruct \
+  --model ai-hub-models/Qwen3-VL-4B-Instruct \
   --device auto --camera 0 --manifest manifests/trauma-kit-a.json
 ```
 
@@ -228,7 +228,7 @@ The protocol is identical either way; only the device path changes.
 
 .venv/bin/readykit watch \
   --manifest manifests/trauma-kit-a.json \
-  --engine geniex --model ai-hub-models/Qwen2.5-VL-7B-Instruct \
+  --engine geniex --model ai-hub-models/Qwen3-VL-4B-Instruct \
   --device auto \
   --camera 0 \
   --link serial --port /dev/ttyACM0 \
@@ -269,9 +269,9 @@ simulator already pins — this confirms the hardware agrees.
 step with the most unknowns
 
 - [ ] `pip install geniex` succeeds on the Snapdragon host.
-- [ ] `geniex pull ai-hub-models/Qwen2.5-VL-7B-Instruct` completes. Note how
+- [ ] `geniex pull ai-hub-models/Qwen3-VL-4B-Instruct` completes. Note how
       long it took and how much disk it used.
-- [ ] `geniex infer ai-hub-models/Qwen2.5-VL-7B-Instruct` runs and answers a
+- [ ] `geniex infer ai-hub-models/Qwen3-VL-4B-Instruct` runs and answers a
       question about an image. If this does not work, nothing downstream will.
 - [ ] `readykit inspect --engine geniex --camera 0 --manifest ...` returns a
       verdict of any kind. A verdict of INDETERMINATE here is a success: it

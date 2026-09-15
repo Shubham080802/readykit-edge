@@ -5,7 +5,7 @@ This is the field path, written against the documented GenieX Python API:
     from geniex import AutoModelForCausalLM
 
     model = AutoModelForCausalLM.from_pretrained(
-        "ai-hub-models/Qwen2.5-VL-7B-Instruct", device_map="auto"
+        "ai-hub-models/Qwen3-VL-4B-Instruct", device_map="auto"
     )                                   # -> GenieXVLM for a multimodal model
     prompt = model.tokenizer.apply_chat_template(messages, add_generation_prompt=True)
     reply  = model.generate(prompt, images=["/path/to/frame.jpg"], stream=False)
@@ -16,7 +16,7 @@ Three things about that API drive the shape of this module:
 * **A model is a repo id, not a file.** GenieX pulls a GGUF from Hugging Face
   or a pre-compiled bundle from Qualcomm AI Hub. There is no `.qnn` path to
   point at, so `--model` takes something like
-  `ai-hub-models/Qwen2.5-VL-7B-Instruct`.
+  `ai-hub-models/Qwen3-VL-4B-Instruct`.
 * **Images are passed as file paths.** Not arrays, not PIL objects. A frame
   captured from the camera therefore has to be written to disk before it can
   be inspected, which this module does to a temporary file it owns and
@@ -44,9 +44,26 @@ from ..domain import Manifest
 from ..reply import ReplyParseError, build_prompt, parse_reply
 from .base import InferenceEngine, InferenceError, Observation
 
-DEFAULT_MODEL = "ai-hub-models/Qwen2.5-VL-7B-Instruct"
-"""A vision-language bundle precompiled for the Hexagon NPU. Overridable -
-nothing here depends on this particular model, only on it being multimodal."""
+DEFAULT_MODEL = "ai-hub-models/Qwen3-VL-4B-Instruct"
+"""A vision-language bundle precompiled for the Hexagon NPU.
+
+4B rather than the 7B this used to point at, for three reasons that all
+matter more than benchmark quality:
+
+  - Qualcomm AI Hub lists **Snapdragon X Elite** explicitly among its
+    supported chipsets, which is the machine this runs on.
+  - Half the parameters is roughly half the time to first token, and the
+    sentinel loop inspects continuously rather than once. A model that takes
+    three seconds per frame turns "the latch closes under your hand" into
+    "the latch closes eventually".
+  - Reading item names and printed dates off a tray is a legible-text task,
+    not a reasoning-heavy one. The extra capacity of a larger model is not
+    spent on anything this asks for.
+
+Overridable, and nothing here depends on this particular model - only on it
+being multimodal, which is enforced at construction. `ai-hub-models/
+Qwen3-VL-8B-Instruct` and the Qwen2.5-VL family are the obvious steps up if a
+kit turns out to need one."""
 
 NPU_MARKERS = ("htp", "hexagon", "npu", "dsp")
 """Substrings that identify an NPU backend in a resolved device string. HTP -

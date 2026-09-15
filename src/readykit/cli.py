@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
@@ -31,14 +32,71 @@ from .inference.simulated import SimulatedEngine
 from .naive import Divergence
 from .recorder import ChainStatus, InspectionLog
 
-RESET = "\033[0m"
-DIM = "\033[2m"
-BOLD = "\033[1m"
+
+def _windows_vt_enabled() -> bool:
+    """Turn on virtual terminal processing, and report whether it took.
+
+    Windows Terminal handles ANSI and is the default on Windows 11, so this is
+    usually a formality. The legacy console host is not, and the difference is
+    invisible until a demonstration prints a screenful of escape codes to a
+    room of judges. One API call removes the question.
+    """
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+        mode = ctypes.c_uint32()
+        if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            return False
+        enable_vt = 0x0004  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+        return bool(kernel32.SetConsoleMode(handle, mode.value | enable_vt))
+    except Exception:
+        return False
+
+
+def _colour_supported() -> bool:
+    """Whether to emit ANSI escapes at all.
+
+    Three ways to end up with escape codes as literal text instead of colour,
+    and all three are silent:
+
+      - output is redirected to a file or piped into another program, where
+        the escapes become garbage in the artefact
+      - NO_COLOR is set, which is a convention worth honouring
+      - a Windows console that has not had VT processing enabled
+
+    The verdict is also printed in words, never only in colour, so losing
+    colour costs legibility and never meaning.
+    """
+    if os.environ.get("NO_COLOR"):
+        return False
+    if not sys.stdout.isatty():
+        return False
+    if os.name == "nt":
+        return _windows_vt_enabled()
+    return True
+
+
+COLOUR = _colour_supported()
+
+
+def _style(code: str) -> str:
+    return code if COLOUR else ""
+
+
+RESET = _style("\033[0m")
+DIM = _style("\033[2m")
+BOLD = _style("\033[1m")
 
 _VERDICT_STYLE = {
-    Verdict.PASS: ("\033[38;5;41m", "PASS", "latch released"),
-    Verdict.FAIL: ("\033[38;5;203m", "FAIL", "latch engaged"),
-    Verdict.INDETERMINATE: ("\033[38;5;221m", "INDETERMINATE", "latch engaged"),
+    Verdict.PASS: (_style("\033[38;5;41m"), "PASS", "latch released"),
+    Verdict.FAIL: (_style("\033[38;5;203m"), "FAIL", "latch engaged"),
+    Verdict.INDETERMINATE: (
+        _style("\033[38;5;221m"),
+        "INDETERMINATE",
+        "latch engaged",
+    ),
 }
 
 
@@ -192,7 +250,7 @@ def _add_pipeline_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--model",
         help=(
-            "GenieX model repo id, e.g. ai-hub-models/Qwen2.5-VL-7B-Instruct. "
+            "GenieX model repo id, e.g. ai-hub-models/Qwen3-VL-4B-Instruct. "
             "Not a file path - GenieX pulls bundles by id"
         ),
     )
@@ -379,9 +437,9 @@ def _cmd_sentinel(args: argparse.Namespace) -> int:
     from .sentinel import Action, Sentinel, SentinelConfig, SentinelState
 
     tone = {
-        Action.RELEASE: "\033[38;5;41m",
-        Action.REJECT: "\033[38;5;203m",
-        Action.HOLD: "\033[38;5;221m",
+        Action.RELEASE: _style("\033[38;5;41m"),
+        Action.REJECT: _style("\033[38;5;203m"),
+        Action.HOLD: _style("\033[38;5;221m"),
         Action.NONE: DIM,
     }
 
@@ -428,9 +486,9 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
 
     checks = run_checks(probe_cameras=args.cameras)
     tone = {
-        Status.OK: "\033[38;5;41m",
-        Status.WARN: "\033[38;5;221m",
-        Status.FAIL: "\033[38;5;203m",
+        Status.OK: _style("\033[38;5;41m"),
+        Status.WARN: _style("\033[38;5;221m"),
+        Status.FAIL: _style("\033[38;5;203m"),
         Status.INFO: DIM,
     }
     mark = {Status.OK: "ok", Status.WARN: "warn", Status.FAIL: "FAIL",
@@ -522,9 +580,9 @@ def _cmd_audit(args: argparse.Namespace) -> int:
     log = InspectionLog(args.log)
     result = log.verify()
 
-    green = "\033[38;5;41m"
-    red = "\033[38;5;203m"
-    amber = "\033[38;5;221m"
+    green = _style("\033[38;5;41m")
+    red = _style("\033[38;5;203m")
+    amber = _style("\033[38;5;221m")
 
     colour, text = {
         ChainStatus.INTACT: (green, f"chain intact over {result.verified} records"),
@@ -737,10 +795,10 @@ def _render_comparison(outcome: InspectionOutcome) -> None:
         return
 
     if comparison.divergence is Divergence.UNSAFE:
-        colour = "\033[38;5;203m"
+        colour = _style("\033[38;5;203m")
         headline = "the original blueprint would have RELEASED the latch here"
     elif comparison.divergence is Divergence.SPURIOUS:
-        colour = "\033[38;5;221m"
+        colour = _style("\033[38;5;221m")
         headline = "the original blueprint would have rejected this kit"
     else:
         colour = DIM
@@ -796,9 +854,9 @@ def _cmd_compare(args: argparse.Namespace) -> int:
     for scene, signal, verdict, divergence in rows:
         if divergence is Divergence.UNSAFE:
             unsafe += 1
-            colour, label = "\033[38;5;203m", "UNLOCKS A BAD KIT"
+            colour, label = _style("\033[38;5;203m"), "UNLOCKS A BAD KIT"
         elif divergence is Divergence.SPURIOUS:
-            colour, label = "\033[38;5;221m", "rejects a good kit"
+            colour, label = _style("\033[38;5;221m"), "rejects a good kit"
         elif divergence is Divergence.AGREED:
             colour, label = DIM, "agreed"
         else:

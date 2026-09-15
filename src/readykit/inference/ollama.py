@@ -19,8 +19,8 @@ None of those can be answered by the simulator, because the simulator was
 written by the same hand as the parser and agrees with it by construction.
 
 The default model is deliberately the same family as the GenieX default:
-Qwen2.5-VL-7B either way, so switching runtime changes the hardware and not
-the model's behaviour.
+the same Qwen vision family, so switching runtime changes the hardware
+without changing the kind of model being asked.
 
 **This is not the NPU and must never be reported as one.** The engine name
 recorded on every inspection says `ollama:<model>`, which is unambiguous. Use
@@ -44,6 +44,10 @@ from ..reply import ReplyParseError, build_prompt, parse_reply
 from .base import InferenceEngine, InferenceError, Observation
 
 DEFAULT_MODEL = "qwen2.5vl:7b"
+"""The nearest Ollama equivalent of the GenieX default. Ollama does not
+carry Qwen3-VL-4B, so this is a family match rather than an exact one -
+which is fine, because this engine exists to prove the prompt and the
+parser survive a real model, not to reproduce the NPU's output."""
 """Same model family as the GenieX default, so the runtime is the only thing
 that changes between this and the Snapdragon host."""
 

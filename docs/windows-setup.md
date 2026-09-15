@@ -163,12 +163,34 @@ wrong runtime beats a broken one on the right runtime.
 ## Stage 4 — The model
 
 ```powershell
-geniex pull ai-hub-models/Qwen2.5-VL-7B-Instruct
-geniex infer ai-hub-models/Qwen2.5-VL-7B-Instruct
+geniex pull ai-hub-models/Qwen3-VL-4B-Instruct
+geniex infer ai-hub-models/Qwen3-VL-4B-Instruct
 ```
 
 Note how long the pull takes and how much disk it uses — you will want that
 number when planning the demo.
+
+### Why 4B and not something larger
+
+Qualcomm AI Hub lists **Snapdragon X Elite** explicitly among the supported
+chipsets for `Qwen3-VL-4B-Instruct`, which is the machine you are on. Two more
+reasons it is the right default here:
+
+- The sentinel inspects continuously rather than once. Roughly half the
+  parameters is roughly half the time to first token, and a model taking three
+  seconds a frame turns *"the latch closes under your hand"* into *"the latch
+  closes eventually"*.
+- Reading item names and printed dates off a tray is a legible-text task, not
+  a reasoning-heavy one. A larger model's extra capacity is not spent on
+  anything this asks of it.
+
+`ai-hub-models/Qwen3-VL-8B-Instruct` and the Qwen2.5-VL family are the steps up
+if a particular kit turns out to need one. Measure before you switch:
+
+```powershell
+.venv\Scripts\readykit bench --manifest manifests\trauma-kit-a.json `
+  --engine geniex --model ai-hub-models/Qwen3-VL-4B-Instruct --require-npu --runs 20
+```
 
 The `infer` step is the real test. Give it an image and ask what is in it. **If
 this does not work, nothing downstream will**, and everything after this point
@@ -266,7 +288,7 @@ the Arduino IDE, and work through the
 
 ```powershell
 .venv\Scripts\readykit inspect --manifest manifests\trauma-kit-a.json `
-  --engine geniex --model ai-hub-models/Qwen2.5-VL-7B-Instruct --device auto `
+  --engine geniex --model ai-hub-models/Qwen3-VL-4B-Instruct --device auto `
   --camera 0 --link serial --port COM4
 ```
 

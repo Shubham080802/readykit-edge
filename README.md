@@ -211,7 +211,7 @@ runs.
 .venv/bin/pip install -e ".[host]"
 .venv/bin/readykit inspect \
   --manifest manifests/trauma-kit-a.json \
-  --engine geniex --model ai-hub-models/Qwen2.5-VL-7B-Instruct \
+  --engine geniex --model ai-hub-models/Qwen3-VL-4B-Instruct \
   --camera 0 \
   --link serial --port /dev/ttyACM0
 ```
