@@ -330,7 +330,13 @@ body { min-height: 100vh; }
 
 /* Expiry overrides the presence colour. The item IS present - that is the
  * whole point - so a green glyph beside an expired date would be a lie. */
-.item[data-expired="true"] .item__glyph { color: var(--verdict-fail); }
+.item[data-expired="true"] .item__glyph,
+.item[data-short="true"] .item__glyph { color: var(--verdict-fail); }
+
+/* Counted-against-required. Red when short, amber when the count could not be
+   taken - the same three-state language the verdict itself uses. */
+.item__label small[data-state="short"] { color: var(--verdict-fail); font-weight: 500; }
+.item__label small[data-state="unknown"] { color: var(--verdict-hold); }
 
 .item__expiry {
   font-family: var(--mono);

@@ -101,8 +101,22 @@ def _combine(
         presence=presence,
         confidence=mean_confidence,
         note=_first_note(agreeing),
+        count=_agreed_count(agreeing),
         expiry=_agreed_expiry(agreeing),
     )
+
+
+def _agreed_count(agreeing: list[Sighting]) -> int | None:
+    """Frames that counted must have counted the same, or nothing is known.
+
+    Taking the minimum would be the safe-looking choice, but it turns one
+    bad frame into a failed kit; taking the maximum manufactures passes.
+    Disagreement is doubt, which is the rule everywhere else here.
+    """
+    counts = {s.count for s in agreeing if s.count is not None}
+    if len(counts) != 1:
+        return None
+    return counts.pop()
 
 
 def _agreed_expiry(agreeing: list[Sighting]) -> date | None:

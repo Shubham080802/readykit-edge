@@ -104,8 +104,8 @@ Switch to the terminal:
 readykit compare --manifest manifests/trauma-kit-a.json
 ```
 
-> Seventeen scenarios. The original design would have opened the cabinet on
-> twelve of them.
+> Nineteen scenarios. The original design would have opened the cabinet on
+> eleven of them.
 
 Then:
 
@@ -137,7 +137,7 @@ is a VLM.
 **"Isn't the comparison against the old design a strawman?"**
 It's the reference implementation from the hardware blueprint, preserved and
 executed, not a paraphrase. Both parsers read the same verbatim model output.
-And it gets two of the seventeen scenarios right — including rejecting
+And it gets six of the nineteen scenarios right — including rejecting
 "Sorry, I could not process that image", because "could not" happens to
 contain "no". Correct, by pure accident. There's a test pinning that case
 specifically.
@@ -173,9 +173,11 @@ the honest answer to what's been verified and what hasn't, and every item on
 it is a behaviour a test already pins.
 
 **"What's not finished?"**
-`quantity` is carried through the manifest, prompt and console but not enforced
-by the resolver — a manifest asking for two tourniquets passes on one. It's
-documented as a gap rather than hidden. Volunteering this tends to buy more
+It has never run on the hardware — that's the honest headline, and the bring-up
+checklist says exactly what remains to be proven on device. Beyond that:
+counting is the model's weakest axis, so multi-quantity kits want more frames
+per inspection; the audit chain is tamper-evident rather than tamper-proof; and
+it's a single station with no fleet view. Volunteering these tends to buy more
 credibility than it costs.
 
 ---

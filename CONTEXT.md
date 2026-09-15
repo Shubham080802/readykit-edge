@@ -72,6 +72,18 @@ In date today, but falling due within the Manifest's warning window. An
 advisory - the Kit passes, and whoever restocks it is told.
 _Avoid_: Nearly expired, warning, amber
 
+**Count**:
+How many of a Required Item the model reports seeing. None is not one - it is
+"no quantity was established", which for an item the Manifest requires more
+than one of is unresolved, exactly like an unread use-by date.
+_Avoid_: Quantity (that is the requirement), number, tally
+
+**Short**:
+A Required Item that is present, undamaged and in date, but fewer than the
+Manifest requires. A positive finding of non-compliance, reported apart from
+Missing because the remedy differs - top up rather than replace.
+_Avoid_: Incomplete, understocked, partial, low
+
 **Confidence Floor**:
 The per-Manifest threshold a Sighting must clear to count as evidence. A
 Sighting below the floor contributes Indeterminate, not Fail.

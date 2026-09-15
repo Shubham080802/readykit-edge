@@ -193,7 +193,16 @@ function renderChecklist(last) {
   for (const spec of manifest.items) {
     const seen = reported.get(spec.key);
     const presence = seen ? seen.presence : "unreported";
-    if (seen && presence === "found" && !seen.unresolved && !seen.expired) {
+    /* Confirmed means this item is genuinely cleared. An expired or short item
+     * is "found" and still a reason the kit failed, so counting it here would
+     * put "7/7 confirmed" above a failing checklist. */
+    if (
+      seen &&
+      presence === "found" &&
+      !seen.unresolved &&
+      !seen.expired &&
+      !seen.short
+    ) {
       resolved += 1;
     }
 
@@ -202,11 +211,16 @@ function renderChecklist(last) {
     row.dataset.presence = presence;
     row.dataset.blamed = seen ? String(seen.blamed) : "false";
     row.dataset.expired = seen ? String(Boolean(seen.expired)) : "false";
+    row.dataset.short = seen ? String(Boolean(seen.short)) : "false";
     row.dataset.unresolved = seen ? String(seen.unresolved) : "false";
 
     const glyph = document.createElement("span");
     glyph.className = "item__glyph";
-    glyph.textContent = seen && seen.expired ? "\u00d7" : GLYPH[presence] || "?";
+    glyph.textContent = seen && seen.expired
+      ? "\u00d7"
+      : seen && seen.short
+        ? "\u2039"
+        : GLYPH[presence] || "?";
     glyph.setAttribute("aria-hidden", "true");
 
     const label = document.createElement("span");
@@ -215,9 +229,21 @@ function renderChecklist(last) {
     if (spec.severity === "advisory" || spec.quantity > 1) {
       const note = document.createElement("small");
       const bits = [];
-      if (spec.quantity > 1) bits.push(`×${spec.quantity}`);
+      /* Show counted-against-required rather than just the requirement. A row
+       * reading "x2" beside a green tick looks compliant even when only one is
+       * there, which is the whole failure this check exists to catch. */
+      if (spec.quantity > 1) {
+        const got = seen && seen.count !== null && seen.count !== undefined
+          ? seen.count
+          : "?";
+        bits.push(`${got}/${spec.quantity}`);
+      }
       if (spec.severity === "advisory") bits.push("advisory");
-      note.textContent = bits.join(" · ");
+      note.textContent = bits.join(" \u00b7 ");
+      if (seen && seen.short) note.dataset.state = "short";
+      else if (spec.quantity > 1 && seen && seen.count == null) {
+        note.dataset.state = "unknown";
+      }
       label.appendChild(note);
     }
 

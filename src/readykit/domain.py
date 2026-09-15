@@ -191,6 +191,15 @@ class Sighting:
     confidence: float
     note: str = ""
 
+    count: int | None = None
+    """How many of this item the model counted, or None if it did not count.
+
+    None is not "one" - it is "no quantity was established". For an item the
+    Manifest requires more than one of, that is unresolved, exactly like an
+    unread expiry date. A model that can see the tourniquet pocket but cannot
+    tell whether it holds one tourniquet or two has not cleared the kit.
+    """
+
     expiry: date | None = None
     """The use-by date the model read off the item, or None if it read none.
 
@@ -204,6 +213,10 @@ class Sighting:
             raise ValueError(
                 f"Sighting {self.key!r} confidence must be in [0,1], "
                 f"got {self.confidence}"
+            )
+        if self.count is not None and self.count < 0:
+            raise ValueError(
+                f"Sighting {self.key!r} count must be >= 0, got {self.count}"
             )
 
 
@@ -227,6 +240,11 @@ class Resolution:
 
     expiring_soon: tuple[str, ...] = ()
     """In date today, but inside the Manifest's warning window. Advisory."""
+
+    short: tuple[str, ...] = ()
+    """Items present, serviceable and in date, but fewer than the Manifest
+    requires. A positive finding of non-compliance, reported apart from
+    missing because the remedy differs: top up, not replace."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -281,12 +299,14 @@ class InspectionRecord:
             "advisories": list(self.resolution.advisories),
             "expired": list(self.resolution.expired),
             "expiring_soon": list(self.resolution.expiring_soon),
+            "short": list(self.resolution.short),
             "sightings": [
                 {
                     "key": s.key,
                     "presence": s.presence.value,
                     "confidence": round(s.confidence, 4),
                     "note": s.note,
+                    "count": s.count,
                     "expiry": s.expiry.isoformat() if s.expiry else None,
                 }
                 for s in self.sightings
@@ -345,6 +365,7 @@ def resolve_verdict(
     advisories: list[str] = []
     expired: list[str] = []
     expiring_soon: list[str] = []
+    short: list[str] = []
 
     for item in manifest.items:
         found = by_key.get(item.key)
@@ -364,6 +385,8 @@ def resolve_verdict(
             continue
 
         if found.presence is Presence.FOUND:
+            if item.quantity > 1:
+                _judge_count(item, found, short, unresolved, advisories)
             if item.expiry_checked:
                 _judge_expiry(
                     item, found, today, manifest.expiry_warning_days,
@@ -387,17 +410,19 @@ def resolve_verdict(
             advisories=tuple(advisories),
             expired=tuple(expired),
             expiring_soon=tuple(expiring_soon),
+            short=tuple(short),
         )
 
-    if missing or damaged or expired:
+    if missing or damaged or expired or short:
         return Resolution(
             verdict=Verdict.FAIL,
-            reason=_describe_failure(manifest, missing, damaged, expired),
+            reason=_describe_failure(manifest, missing, damaged, expired, short),
             missing=tuple(missing),
             damaged=tuple(damaged),
             advisories=tuple(advisories),
             expired=tuple(expired),
             expiring_soon=tuple(expiring_soon),
+            short=tuple(short),
         )
 
     reason = f"All {len(manifest.items)} required items present and serviceable"
@@ -414,6 +439,29 @@ def resolve_verdict(
         advisories=tuple(advisories),
         expiring_soon=tuple(expiring_soon),
     )
+
+
+def _judge_count(
+    item: RequiredItem,
+    sighting: Sighting,
+    short: list[str],
+    unresolved: list[str],
+    advisories: list[str],
+) -> None:
+    """Judge how many of a multi-quantity item were counted.
+
+    Same rule as everywhere else: a count that was never taken is unresolved,
+    not assumed sufficient. "I can see tourniquets" does not establish that
+    there are two of them, and a kit with one of a required pair is a kit that
+    runs out halfway through.
+    """
+    if sighting.count is None:
+        unresolved.append(item.key)
+        return
+
+    if sighting.count < item.quantity:
+        bucket = short if item.severity is Severity.CRITICAL else advisories
+        bucket.append(item.key)
 
 
 def _judge_expiry(
@@ -475,6 +523,7 @@ def _describe_failure(
     missing: Sequence[str],
     damaged: Sequence[str],
     expired: Sequence[str] = (),
+    short: Sequence[str] = (),
 ) -> str:
     parts: list[str] = []
     if missing:
@@ -483,4 +532,6 @@ def _describe_failure(
         parts.append("damaged " + ", ".join(_label(manifest, k) for k in damaged))
     if expired:
         parts.append("expired " + ", ".join(_label(manifest, k) for k in expired))
+    if short:
+        parts.append("short on " + ", ".join(_label(manifest, k) for k in short))
     return "Kit non-compliant: " + "; ".join(parts)

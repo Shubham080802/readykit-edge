@@ -38,7 +38,8 @@ _SCHEMA_HINT = """Reply with JSON only, in exactly this shape:
 
 {"items": [{"key": "<item key>", "presence": "<found|absent|damaged|unreadable>",
             "confidence": <0.0-1.0>, "note": "<short observation>",
-            "expiry": "<YYYY-MM or YYYY-MM-DD, omit if not required or not legible>"}]}
+            "expiry": "<YYYY-MM or YYYY-MM-DD, omit if not required or not legible>",
+            "count": <how many you counted, omit if not required or unsure>}]}
 """
 
 
@@ -65,10 +66,25 @@ def build_prompt(manifest: Manifest) -> str:
         "Items:",
     ]
     expiry_items = [item for item in manifest.items if item.expiry_checked]
+    counted_items = [item for item in manifest.items if item.quantity > 1]
     for item in manifest.items:
-        quantity = f" (quantity {item.quantity})" if item.quantity > 1 else ""
+        quantity = (
+            f" [COUNT THEM - {item.quantity} required]" if item.quantity > 1 else ""
+        )
         expiry = " [READ THE EXPIRY DATE]" if item.expiry_checked else ""
         lines.append(f"  - key={item.key}: {item.label}{quantity}{expiry}")
+
+    if counted_items:
+        lines.extend(
+            [
+                "",
+                "For items marked [COUNT THEM], report how many you can see in",
+                "the 'count' field. Count what is actually visible. Do not assume",
+                "the required number is present, and omit the field if you cannot",
+                "count them - an omitted count is handled safely, a guessed one is",
+                "not.",
+            ]
+        )
 
     if expiry_items:
         lines.extend(
@@ -159,8 +175,24 @@ def _parse_entry(entry: Any, known: set[str]) -> Sighting | None:
         presence=presence,
         confidence=confidence,
         note=note[:200],
+        count=_parse_count(entry.get("count")),
         expiry=_parse_expiry(entry.get("expiry")),
     )
+
+
+def _parse_count(value: Any) -> int | None:
+    """Read a counted quantity. Anything unusable becomes None.
+
+    None means "no quantity established", which upstream is unresolved for an
+    item the Manifest requires more than one of. Coercing a bad value to 1 -
+    or to the required number - is the one thing that would manufacture a pass,
+    so every ambiguity resolves to None.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if value != int(value) or value < 0:
+        return None
+    return int(value)
 
 
 def _parse_expiry(value: Any) -> date | None:

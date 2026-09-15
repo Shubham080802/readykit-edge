@@ -42,6 +42,8 @@ ENGINE_FAULT = "engine-fault"
 EXPIRED = "expired"
 EXPIRING_SOON = "expiring-soon"
 EXPIRY_UNREADABLE = "expiry-unreadable"
+SHORT = "short"
+COUNT_UNREADABLE = "count-unreadable"
 
 _BUILTIN_SCENES = {
     COMPLETE: "every required item present and clearly visible",
@@ -54,6 +56,8 @@ _BUILTIN_SCENES = {
     EXPIRED: "every item present - but a date-checked one is out of date",
     EXPIRING_SOON: "complete and in date, with an item nearing its use-by",
     EXPIRY_UNREADABLE: "complete, but a printed date could not be read",
+    SHORT: "an item is present but there are fewer than the manifest requires",
+    COUNT_UNREADABLE: "present, but how many could not be counted",
 }
 
 
@@ -146,6 +150,37 @@ class SimulatedEngine(InferenceEngine):
                 },
             )
 
+        if scene == SHORT:
+            # Everything is present. One of them is a pair and only one is
+            # there - a kit that runs out halfway through.
+            item = self._first_counted(manifest, scene)
+            return self._reply(
+                f"All required items are present. I count only one "
+                f"{item.label} where the specification calls for "
+                f"{item.quantity}.",
+                {key: (Presence.FOUND, 0.94) for key in manifest.keys},
+                manifest,
+                counts={
+                    other.key: (1 if other.key == item.key else other.quantity)
+                    for other in manifest.items
+                    if other.quantity > 1
+                },
+            )
+
+        if scene == COUNT_UNREADABLE:
+            item = self._first_counted(manifest, scene)
+            return self._reply(
+                f"All required items are present. The {item.label} are stacked "
+                "and I cannot tell how many there are.",
+                {key: (Presence.FOUND, 0.94) for key in manifest.keys},
+                manifest,
+                counts={
+                    other.key: other.quantity
+                    for other in manifest.items
+                    if other.quantity > 1 and other.key != item.key
+                },
+            )
+
         if scene == EXPIRY_UNREADABLE:
             # The date is smudged. The item is present, undamaged, and its
             # serviceability is simply unknown - which is not a pass.
@@ -202,15 +237,15 @@ class SimulatedEngine(InferenceEngine):
         ):
             if scene.startswith(prefix):
                 target = scene[len(prefix) :]
-                item = manifest.item(target)
-                if item is None:
+                knocked_out = manifest.item(target)
+                if knocked_out is None:
                     raise InferenceError(
                         f"scene {scene!r} refers to {target!r}, which is not on "
                         f"manifest {manifest.manifest_id!r}. Items: "
                         f"{', '.join(manifest.keys)}"
                     )
                 return self._reply(
-                    f"{phrasing}: {item.label}. "
+                    f"{phrasing}: {knocked_out.label}. "
                     "All other required items are present.",
                     {
                         key: (
@@ -226,6 +261,15 @@ class SimulatedEngine(InferenceEngine):
             f"unknown scene {scene!r}. Built-in scenes: "
             f"{', '.join(sorted(_BUILTIN_SCENES))}; or missing-<key> / "
             f"damaged-<key> for {', '.join(manifest.keys)}"
+        )
+
+    def _first_counted(self, manifest: Manifest, scene: str) -> RequiredItem:
+        for item in manifest.items:
+            if item.quantity > 1:
+                return item
+        raise InferenceError(
+            f"scene {scene!r} needs an item with quantity > 1, but manifest "
+            f"{manifest.manifest_id!r} has none."
         )
 
     def _first_dated(self, manifest: Manifest, scene: str) -> RequiredItem:
@@ -248,6 +292,7 @@ class SimulatedEngine(InferenceEngine):
         readings: dict[str, tuple[Presence, float]],
         manifest: Manifest,
         expiries: dict[str, date] | None = None,
+        counts: dict[str, int] | None = None,
     ) -> str:
         """Prose narration followed by a fenced JSON block.
 
@@ -269,6 +314,14 @@ class SimulatedEngine(InferenceEngine):
         }
         if expiries is not None:
             dates = dict(expiries)
+
+        tallies = {
+            item.key: item.quantity
+            for item in manifest.items
+            if item.quantity > 1
+        }
+        if counts is not None:
+            tallies = dict(counts)
         items: list[dict[str, object]] = []
         for key, (presence, confidence) in readings.items():
             entry: dict[str, object] = {
@@ -276,6 +329,8 @@ class SimulatedEngine(InferenceEngine):
                 "presence": presence.value,
                 "confidence": round(self._wobble(confidence), 3),
             }
+            if key in tallies:
+                entry["count"] = tallies[key]
             if key in dates:
                 entry["expiry"] = dates[key].isoformat()
             items.append(entry)

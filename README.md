@@ -52,11 +52,13 @@ scene                   blueprint           readykit        divergence
 complete                PASS_KIT            pass            agreed
 complete-negated        ERR_MISSING_TOOL    pass            rejects a good kit
 empty                   ERR_MISSING_TOOL    fail            agreed
-garbled                 PASS_KIT            indeterminate   UNLOCKS A BAD KIT
+expired                 PASS_KIT            fail            UNLOCKS A BAD KIT
+short                   PASS_KIT            fail            UNLOCKS A BAD KIT
 occluded                PASS_KIT            indeterminate   UNLOCKS A BAD KIT
 missing-shears          PASS_KIT            fail            UNLOCKS A BAD KIT
 ...
-8 of 14 scenes would have released the latch under the original design.
+
+11 of 19 scenes would have released the latch under the original design.
 ```
 
 The sharpest one is `missing-shears`. The model correctly reports the shears
@@ -128,6 +130,31 @@ case. A date that could not be read is **unresolved**, not assumed fine, so a
 smudged use-by fails closed exactly like an occluded item. The prompt tells the
 model to omit the field rather than guess, because an invented expiry is the
 one hallucination that would manufacture a pass.
+
+## Two is not one
+
+A manifest can require more than one of something, and one of a required pair
+is a kit that runs out halfway through:
+
+```bash
+.venv/bin/readykit inspect --manifest manifests/trauma-kit-a.json --scene short
+```
+
+```
+  FAIL  latch engaged
+  Kit non-compliant: short on Windlass Tourniquet
+    < Windlass Tourniquet    found      0.97  1/2
+    + Vented Chest Seal      found      0.96  2/2  exp 2027-10-20
+    + Trauma Shears          found      0.94
+```
+
+Counting obeys the same rule as everything else. A count that was never taken
+is **unresolved**, not assumed sufficient — `--scene count-unreadable` shows
+`?/2` and resolves to INDETERMINATE, because "I can see tourniquets" does not
+establish that there are two of them. The parser refuses to coerce a bad count
+to the required number, which is the one place it could manufacture a pass, and
+frames that disagree on a count establish no count rather than taking the
+minimum or the maximum.
 
 ## The audit trail
 
@@ -266,8 +293,7 @@ hardware agrees rather than discovering what the hardware does. The item that
 matters most is the cloth-over-the-tray one: if a covered kit ever passes, stop
 and raise the confidence floor.
 
-Known gaps, including `quantity` being carried but not enforced, are listed at
-the end of that document.
+Known gaps are listed at the end of that document.
 
 ## License
 

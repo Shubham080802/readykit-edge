@@ -48,7 +48,7 @@ We kept that logic executable and replay it on every frame:
 ```
 readykit compare --manifest manifests/trauma-kit-a.json
 
-  17 scenarios · 12 would have released the latch under the original design
+  19 scenarios · 11 would have released the latch under the original design
 ```
 
 It gets two right, including one purely by accident. That's pinned by a test,
@@ -76,16 +76,17 @@ A kit can be complete, undamaged, every tick green — and still fail.
 | **Audit** | Hash-chained records. Editing, deleting or reordering history is detectable and named. |
 | **Simulation** | Every hardware layer has a real and a simulated implementation, so the whole pipeline — including latch behaviour and the watchdog — is testable without a board. |
 
-**228 tests. `ruff` and `mypy --strict` clean. CI on Python 3.11–3.13.**
+**256 tests. `ruff` and `mypy --strict` clean. CI on Python 3.11–3.13.**
 
 ## Honest limits
 
 - **Not yet run on the hardware.** The bring-up checklist in
   `docs/deployment.md` lists exactly what remains to be verified on device.
   Every item on it is a behaviour a test already pins.
-- **`quantity` is not enforced.** Carried through the manifest, prompt and
-  console, but the resolver checks presence only — a manifest asking for two
-  tourniquets passes on one.
+- **Counting is the model's weakest axis.** Quantity is enforced, and a count
+  that was never taken fails closed — but counting small identical objects is
+  harder for a VLM than identifying them, so multi-quantity kits want more
+  frames per inspection.
 - **Tamper-evident, not tamper-proof.** The audit chain catches editing,
   deletion and reordering. It does not stop an attacker with write access who
   rebuilds every subsequent hash.

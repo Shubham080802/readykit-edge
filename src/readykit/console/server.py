@@ -180,12 +180,16 @@ def create_app(
 def _serialise(outcome: Any, manifest: Manifest) -> dict[str, Any]:
     record = outcome.record
     resolution = record.resolution
-    blamed = set(resolution.missing) | set(resolution.damaged) | set(
-        resolution.expired
+    blamed = (
+        set(resolution.missing)
+        | set(resolution.damaged)
+        | set(resolution.expired)
+        | set(resolution.short)
     )
     unresolved = set(resolution.unresolved)
     expired = set(resolution.expired)
     soon = set(resolution.expiring_soon)
+    short = set(resolution.short)
 
     sightings = {s.key: s for s in record.sightings}
     items = []
@@ -209,6 +213,9 @@ def _serialise(outcome: Any, manifest: Manifest) -> dict[str, Any]:
                 ),
                 "expired": item.key in expired,
                 "expiring_soon": item.key in soon,
+                "count": sighting.count if sighting else None,
+                "required": item.quantity,
+                "short": item.key in short,
             }
         )
 
@@ -220,6 +227,7 @@ def _serialise(outcome: Any, manifest: Manifest) -> dict[str, Any]:
         "advisories": list(resolution.advisories),
         "expired": list(resolution.expired),
         "expiring_soon": list(resolution.expiring_soon),
+        "short": list(resolution.short),
         "commanded": record.commanded,
         "enacted": outcome.enacted,
         "engine": record.engine,

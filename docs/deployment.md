@@ -221,11 +221,12 @@ simulator already pins — this confirms the hardware agrees.
 
 ## Known gaps
 
-- **Quantity is not verified.** `RequiredItem.quantity` is carried through the
-  manifest, the prompt, and the console, but `resolve_verdict` only checks
-  presence. A manifest asking for two tourniquets passes on one. Counting
-  needs either a detection model that returns instances or a prompt that asks
-  for a count, and it needs its own tests before anyone relies on it.
+- **Counting accuracy is the model's weakest axis.** Quantity is enforced -
+  an item the manifest requires two of resolves to INDETERMINATE unless the
+  model returns a count, and to FAIL if the count falls short. But counting
+  small identical objects is harder for a VLM than identifying them, so tune
+  `--frames` upward for kits with multi-quantity items: frames that disagree
+  on a count establish no count, which fails closed rather than guessing.
 - **No physical tamper detection.** The system knows what the camera sees. A
   kit swapped after a pass, during the hold, is not detected — the hold is
   deliberately short for this reason.
