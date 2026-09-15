@@ -69,7 +69,10 @@ class SerialLink(HostLink):
         except ProtocolError as exc:
             return LinkResult(command=command, seq=seq, ack=None, error=str(exc))
 
-        last_error = "no attempt made"
+        # max(0, retries) guarantees at least one pass, so this is always set.
+        result = LinkResult(
+            command=command, seq=seq, ack=None, error="no attempt made"
+        )
         for attempt in range(self._retries + 1):
             # A retry reuses the same sequence number on purpose: the Actuator
             # Node refuses a repeat, so a RELEASE that actually landed but
@@ -77,11 +80,15 @@ class SerialLink(HostLink):
             result = self._attempt(command, seq, wire)
             if result.acknowledged:
                 return result
-            last_error = result.error
             if attempt < self._retries:
                 time.sleep(0.05)
 
-        return LinkResult(command=command, seq=seq, ack=None, error=last_error)
+        # The last attempt's result, rather than a fresh one carrying only its
+        # error text. A board that answered REFUSED is a different situation
+        # from a board that said nothing at all, and that difference is
+        # structural - callers should not have to match on error strings to
+        # recover it.
+        return result
 
     def _attempt(self, command: Command, seq: int, wire: bytes) -> LinkResult:
         try:

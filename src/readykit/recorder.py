@@ -45,7 +45,23 @@ _DIGEST_SIZE = 16
 
 class ChainStatus(StrEnum):
     INTACT = "intact"
+
     EMPTY = "empty"
+    """The log exists and holds no records. A real, ordinary state: the file
+    was created and nothing has been written to it yet."""
+
+    ABSENT = "absent"
+    """There is no log at all.
+
+    Deliberately not the same as EMPTY, and deliberately not `ok`. Deleting
+    the file outright is the most obvious move against an audit trail, and
+    reporting success for it would make the tamper-evidence claim false -
+    editing a record is caught by the chain, but removing the evidence
+    wholesale would not be.
+
+    On a machine that has genuinely never run an inspection this is also what
+    you get, and that is the right answer too: there is nothing here to
+    verify, which is not the same as having verified something."""
 
     TAMPERED = "tampered"
     """A record's contents do not match its recorded hash, or its prev_hash
@@ -73,6 +89,7 @@ class ChainResult:
 
     @property
     def ok(self) -> bool:
+        # ABSENT is excluded on purpose - see ChainStatus.ABSENT.
         return self.status in (ChainStatus.INTACT, ChainStatus.EMPTY)
 
 
@@ -161,7 +178,15 @@ class InspectionLog:
     def verify(self) -> ChainResult:
         """Walk the chain from the genesis record and report the first break."""
         if not self.path.exists():
-            return ChainResult(ChainStatus.EMPTY, 0, 0)
+            return ChainResult(
+                ChainStatus.ABSENT,
+                0,
+                0,
+                detail=(
+                    "there is no log at this path, so nothing could be "
+                    "verified - which is not the same as a verified chain"
+                ),
+            )
 
         raw_lines = [
             line.strip()

@@ -48,10 +48,35 @@ def fill(log: InspectionLog, count: int = 4) -> None:
 
 
 class TestAnUntouchedChain:
-    def test_an_empty_log_verifies(self, log: InspectionLog) -> None:
+    def test_a_log_that_does_not_exist_is_not_a_clean_bill_of_health(
+        self, log: InspectionLog
+    ) -> None:
+        """Deleting the file outright is the most obvious move against an
+        audit trail. Editing a record is caught by the chain; removing the
+        evidence wholesale has to be caught here, or the tamper-evidence
+        claim is false."""
+        result = log.verify()
+        assert result.status is ChainStatus.ABSENT
+        assert not result.ok
+        assert "not the same as a verified chain" in result.detail
+
+    def test_an_existing_but_empty_log_verifies(
+        self, log: InspectionLog
+    ) -> None:
+        """Distinct from absent, and genuinely fine: the file was created and
+        nothing has been written to it yet."""
+        log.path.parent.mkdir(parents=True, exist_ok=True)
+        log.path.write_text("")
         result = log.verify()
         assert result.status is ChainStatus.EMPTY
         assert result.ok
+
+    def test_a_log_of_only_blank_lines_is_empty_not_tampered(
+        self, log: InspectionLog
+    ) -> None:
+        log.path.parent.mkdir(parents=True, exist_ok=True)
+        log.path.write_text("\n   \n\n")
+        assert log.verify().status is ChainStatus.EMPTY
 
     def test_a_written_chain_verifies(self, log: InspectionLog) -> None:
         fill(log, 5)

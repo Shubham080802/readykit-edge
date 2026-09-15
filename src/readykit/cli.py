@@ -529,6 +529,7 @@ def _cmd_audit(args: argparse.Namespace) -> int:
     colour, text = {
         ChainStatus.INTACT: (green, f"chain intact over {result.verified} records"),
         ChainStatus.EMPTY: (DIM, "no records yet"),
+        ChainStatus.ABSENT: (amber, "no audit log at all"),
         ChainStatus.TAMPERED: (red, "CHAIN BROKEN"),
         ChainStatus.TRUNCATED: (amber, "final record incomplete"),
         ChainStatus.UNCHAINED: (amber, "records are not chained"),

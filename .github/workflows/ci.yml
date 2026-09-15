@@ -38,3 +38,9 @@ jobs:
       # that the panel never contradicts the lock. This is what enforces both.
       - name: Tests
         run: pytest -q
+
+      # Drives every command through the real argument parser and checks the
+      # exit codes. The unit tests prove the pieces; this proves the thing
+      # someone actually types.
+      - name: Live command audit
+        run: bash scripts/live-audit.sh
