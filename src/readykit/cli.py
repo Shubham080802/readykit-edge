@@ -15,7 +15,14 @@ from pathlib import Path
 
 from .bridge import open_link
 from .bridge.base import HostLink, LinkError
-from .capture import CameraSource, CaptureError, FrameSource, ScriptedSource
+from .capture import (
+    CameraSource,
+    CaptureError,
+    FfmpegCameraSource,
+    FrameSource,
+    ImageFileSource,
+    ScriptedSource,
+)
 from .domain import Manifest, Verdict
 from .engine import InspectionEngine, InspectionOutcome
 from .inference import load_engine
@@ -206,7 +213,24 @@ def _add_pipeline_args(parser: argparse.ArgumentParser) -> None:
         ),
     )
     parser.add_argument("--scene", default="complete", help="simulator scene")
-    parser.add_argument("--camera", type=int, help="camera index (real capture)")
+    parser.add_argument(
+        "--camera", type=int, help="camera index via OpenCV (real capture)"
+    )
+    parser.add_argument(
+        "--ffmpeg-camera",
+        metavar="DEVICE",
+        help=(
+            "camera via ffmpeg - an index on macOS/Linux, a device name on "
+            "Windows. Use this on Snapdragon, where OpenCV has no ARM64 wheel"
+        ),
+    )
+    parser.add_argument(
+        "--image",
+        type=Path,
+        nargs="+",
+        metavar="PATH",
+        help="inspect still images from disk instead of a camera",
+    )
     parser.add_argument(
         "--link",
         default="loopback",
@@ -574,12 +598,24 @@ def _load_manifest(path: Path) -> Manifest:
 
 
 def _build_source(args: argparse.Namespace) -> FrameSource:
+    images = getattr(args, "image", None)
+    if images:
+        return ImageFileSource(list(images))
+
+    ffmpeg_device = getattr(args, "ffmpeg_camera", None)
+    if ffmpeg_device is not None:
+        return FfmpegCameraSource(device=ffmpeg_device)
+
     if args.camera is not None:
         return CameraSource(index=args.camera)
-    if args.engine == "geniex":
+
+    # A real model against a scene name would be looking at a string. Refuse
+    # here rather than let the engine discover it one frame later.
+    if args.engine in ("geniex", "ollama"):
         raise ValueError(
-            "the geniex engine needs real frames - pass --camera 0 "
-            "(or use --engine simulated with --scene)"
+            f"the {args.engine} engine needs real frames - pass --ffmpeg-camera 0, "
+            "--camera 0, or --image <path> (or use --engine simulated with "
+            "--scene)"
         )
     return ScriptedSource(args.scene)
 

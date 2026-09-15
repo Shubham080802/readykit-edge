@@ -195,15 +195,45 @@ So this will fail:
 ```
 
 That gets you the **serial link to the Arduino** and everything except live
-camera capture. Options for capture, in the order worth trying:
+camera capture.
 
-1. **Ask the Qualcomm engineers.** They will know whether there is an ARM64
-   OpenCV build for these machines. It is exactly the kind of thing they are
-   there for, and it costs you one question.
-2. **Capture to a file with any tool** and point `ImageFileSource` at it. The
-   pipeline already supports this, and GenieX takes image *file paths* anyway.
-3. **Run the demo in simulation** for the camera stage while using the real
-   model and the real board. Say so out loud if you do.
+### Use `--ffmpeg-camera`, not `--camera`
+
+ffmpeg ships a native ARM64 Windows build, so capture goes through it instead:
+
+```powershell
+winget install --id Gyan.FFmpeg -e
+```
+
+Open a new terminal, then find the camera's DirectShow name - dshow wants the
+name, not an index:
+
+```powershell
+ffmpeg -hide_banner -f dshow -list_devices true -i dummy
+.venv\Scripts\readykit doctor --cameras
+```
+
+Then pass it:
+
+```powershell
+.venv\Scripts\readykit inspect --manifest manifests\trauma-kit-a.json `
+  --engine geniex --require-npu --ffmpeg-camera "HD Webcam C270"
+```
+
+It yields encoded JPEG bytes, which is what GenieX wants anyway - it takes
+image *file paths*, so a pixel array would only have to be re-encoded.
+
+Costs about 600ms per frame, almost all of it spawning the process and opening
+the device, so the warmup frames are close to free. That is well under what a
+7B VLM takes per frame, so it is not the bottleneck - but keep `sentinel
+--interval` above a second when using it.
+
+**If it will not open the camera**, two fallbacks, in order:
+
+1. **Capture to a file with any tool** and use `--image <path>`. Same pipeline,
+   same records, no camera driver involved.
+2. **Run the camera stage in simulation** while using the real model and the
+   real board. Say so out loud if you do.
 
 Do not solve this by installing x64 Python under emulation. It would get OpenCV
 working and break GenieX, which is the wrong trade.
