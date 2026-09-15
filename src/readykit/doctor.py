@@ -18,6 +18,7 @@ import importlib.metadata
 import os
 import platform
 import shutil
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -48,6 +49,7 @@ def run_checks(probe_cameras: bool = False) -> list[Check]:
     """Everything, in the order it matters on the day."""
     return [
         _platform(),
+        _npu(),
         _python(),
         *_package("geniex", "on-device inference", "pip install geniex",
                   blocking=True),
@@ -82,6 +84,67 @@ def _platform() -> Check:
         detail,
         "Not an ARM64 host. Simulation runs fine here; GenieX will not.",
     )
+
+
+def _npu() -> Check:
+    """Is there a neural processor, and does Windows admit to it?
+
+    Every Snapdragon X Elite has a Hexagon NPU on the die, so the useful
+    question is never "is one fitted" - it is whether the driver is present and
+    the OS is exposing it. A machine with the silicon and no driver looks
+    exactly like a machine without it, right up until inference silently lands
+    on the CPU and the latency numbers quietly stop being the point.
+    """
+    if os.name != "nt":
+        return Check(
+            "NPU",
+            Status.INFO,
+            "not checked - this probe is Windows-only",
+            "On the Snapdragon host this reports the Hexagon NPU.",
+        )
+
+    query = (
+        "Get-PnpDevice -PresentOnly | "
+        "Where-Object { $_.FriendlyName -match 'NPU|Neural|Hexagon|AI Boost' } | "
+        "ForEach-Object { \"$($_.Status)|$($_.FriendlyName)\" }"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", query],
+            capture_output=True,
+            text=True,
+            timeout=25,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return Check(
+            "NPU",
+            Status.WARN,
+            f"could not query devices ({type(exc).__name__})",
+            "Check Task Manager > Performance, or Device Manager.",
+        )
+
+    found = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if not found:
+        return Check(
+            "NPU",
+            Status.WARN,
+            "no neural processor reported by Windows",
+            "The silicon is there on an X Elite; this usually means a missing "
+            "driver. Ask the Qualcomm engineers - inference would fall back to "
+            "CPU and still work, just slowly.",
+        )
+
+    degraded = [f for f in found if not f.lower().startswith("ok")]
+    names = tuple(f.split("|", 1)[-1] for f in found)
+    if degraded:
+        return Check(
+            "NPU",
+            Status.WARN,
+            f"{len(found)} present, but not all healthy",
+            "A device reporting anything other than OK will not be used.",
+            names,
+        )
+    return Check("NPU", Status.OK, f"{len(found)} present and healthy", "", names)
 
 
 TESTED_PYTHON = ((3, 11), (3, 13))

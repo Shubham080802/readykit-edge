@@ -64,6 +64,40 @@ The `[host]` extra is deliberately *not* installed yet — see stage 5.
 
 ---
 
+## Is there actually an NPU?
+
+Every Snapdragon X Elite has a Hexagon NPU on the die, so the question is never
+whether one is fitted — it is whether the driver is installed and Windows is
+exposing it. A machine with the silicon and no driver looks exactly like a
+machine without one, right up until inference quietly lands on the CPU and the
+latency figures stop meaning anything.
+
+```powershell
+.venv\Scripts\readykit doctor
+```
+
+Or directly:
+
+```powershell
+Get-PnpDevice -PresentOnly |
+  Where-Object { $_.FriendlyName -match 'NPU|Neural|Hexagon|AI Boost' } |
+  Format-Table Status, Class, FriendlyName
+```
+
+You are looking for a device that is **present and `OK`**. Anything else will
+not be used. Two other places to look:
+
+- **Task Manager → Performance** — Windows 11 lists NPU beside CPU and GPU
+- **Device Manager** — under *Neural processors*
+
+If nothing appears, that is a driver question for the Qualcomm engineers.
+Inference still works without it; it falls back to CPU and gets slow, which is
+survivable for a demo but not something to discover on stage.
+
+**The check that actually settles it** comes later: run `readykit bench` with
+`--engine geniex` and compare `--device` pinned to the NPU against CPU. If the
+numbers are the same, you are not on the NPU whatever Device Manager says.
+
 ## Stage 3 — GenieX
 
 Two separate installs, and **the order is not optional**: the Python package is
