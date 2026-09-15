@@ -87,6 +87,23 @@ def _build_parser() -> argparse.ArgumentParser:
     compare_cmd.add_argument("--manifest", type=Path, required=True)
     compare_cmd.set_defaults(handler=_cmd_compare)
 
+    sentinel = sub.add_parser(
+        "sentinel",
+        help="watch continuously, and keep watching after the latch opens",
+    )
+    _add_pipeline_args(sentinel)
+    sentinel.add_argument("--interval", type=float, default=0.4)
+    sentinel.add_argument("--limit", type=int, default=0)
+    sentinel.add_argument(
+        "--open-after", type=int, default=2,
+        help="consecutive passes before the latch releases",
+    )
+    sentinel.add_argument(
+        "--close-after", type=int, default=2,
+        help="consecutive failures, while open, before it re-engages",
+    )
+    sentinel.set_defaults(handler=_cmd_sentinel)
+
     doctor = sub.add_parser(
         "doctor", help="check this machine can run everything, before you need it to"
     )
@@ -288,6 +305,54 @@ def _cmd_scenes(args: argparse.Namespace) -> int:
         f"\n  {'missing-<key>':<16} {DIM}knock out one item, e.g. missing-shears{RESET}"
     )
     print(f"  {'damaged-<key>':<16} {DIM}mark one item damaged{RESET}")
+    return 0
+
+
+def _cmd_sentinel(args: argparse.Namespace) -> int:
+    from .sentinel import Action, Sentinel, SentinelConfig, SentinelState
+
+    tone = {
+        Action.RELEASE: "\033[38;5;41m",
+        Action.REJECT: "\033[38;5;203m",
+        Action.HOLD: "\033[38;5;221m",
+        Action.NONE: DIM,
+    }
+
+    with _build_engine(args) as engine:
+        watcher = Sentinel(
+            engine,
+            config=SentinelConfig(
+                open_after=args.open_after,
+                close_after=args.close_after,
+                hold_seconds=engine.manifest.hold_seconds,
+            ),
+        )
+        print(
+            f"\n  {BOLD}watching{RESET} {DIM}{engine.manifest.name} · "
+            f"open after {args.open_after}, close after {args.close_after}{RESET}\n"
+        )
+
+        previous: SentinelState | None = None
+        for event in watcher.run(limit=args.limit):
+            _record(args, event.outcome)
+            decision = event.decision
+            colour = tone[decision.action]
+
+            latch = (
+                "OPEN" if decision.state is SentinelState.RELEASED else "shut"
+            )
+            moved = "  <-- latch moved" if decision.action in (
+                Action.RELEASE, Action.REJECT
+            ) and decision.state is not previous else ""
+            previous = decision.state
+
+            print(
+                f"  {colour}{decision.action.value:<8}{RESET}"
+                f"{DIM}latch {latch:<5}{RESET}"
+                f"{event.verdict.value:<14}"
+                f"{DIM}{decision.reason}{RESET}{colour}{moved}{RESET}"
+            )
+            _sleep_with_heartbeats(engine, args.interval)
     return 0
 
 

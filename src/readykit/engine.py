@@ -96,13 +96,30 @@ class InspectionEngine:
         bench` and the console's NPU panel. Measured, never estimated."""
 
     def run_once(self) -> InspectionOutcome:
+        """Inspect, and act on the verdict immediately."""
+        return self._inspect(act=True)
+
+    def run_once_without_acting(self) -> InspectionOutcome:
+        """Inspect and record, but command nothing.
+
+        For the Sentinel, which decides across several inspections rather than
+        on each one. Without this the latch would move on every frame and the
+        debounce would have nothing to debounce.
+        """
+        return self._inspect(act=False)
+
+    def send(self, command: Command, payload: str = "") -> LinkResult | None:
+        """Send one command directly. Used by a caller that owns actuation."""
+        return self.link.send(command, payload) if self.link is not None else None
+
+    def _inspect(self, act: bool) -> InspectionOutcome:
         started_at = datetime.now(UTC)
         began = monotonic()
 
         observed = self._observe()
         latency_ms = (monotonic() - began) * 1000.0
 
-        link_result = self._enact(observed.resolution)
+        link_result = self._enact(observed.resolution) if act else None
 
         # Replayed for the record only. `compare` cannot actuate - it is a pure
         # function returning a dataclass, and nothing downstream of here reads
@@ -122,7 +139,11 @@ class InspectionEngine:
             commanded=(
                 link_result.describe()
                 if link_result is not None
-                else "no host link configured - nothing was actuated"
+                else (
+                    "no host link configured - nothing was actuated"
+                    if self.link is None
+                    else "observed only - the sentinel owns actuation"
+                )
             ),
             engine=self.engine.name,
             latency_ms=latency_ms,
