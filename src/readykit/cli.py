@@ -176,8 +176,11 @@ def _add_pipeline_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--engine",
         default="simulated",
-        choices=("simulated", "geniex"),
-        help="simulated runs anywhere; geniex needs the Qualcomm SDK",
+        choices=("simulated", "geniex", "ollama"),
+        help=(
+            "simulated runs anywhere; geniex is the Snapdragon NPU; ollama is "
+            "a real model on any machine, for when geniex will not install"
+        ),
     )
     parser.add_argument(
         "--model",
@@ -582,6 +585,10 @@ def _build_source(args: argparse.Namespace) -> FrameSource:
 
 
 def _build_inference(args: argparse.Namespace) -> InferenceEngine:
+    if args.engine == "ollama":
+        from .inference.ollama import DEFAULT_MODEL as OLLAMA_DEFAULT
+
+        return load_engine("ollama", model=args.model or OLLAMA_DEFAULT)
     if args.engine == "geniex":
         from .inference.geniex import DEFAULT_MODEL
 

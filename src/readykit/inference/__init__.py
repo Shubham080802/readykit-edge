@@ -29,6 +29,10 @@ def load_engine(name: str, **kwargs: object) -> InferenceEngine:
         from .geniex import GenieXEngine
 
         return GenieXEngine(**kwargs)  # type: ignore[arg-type]
+    if name == "ollama":
+        from .ollama import OllamaEngine
+
+        return OllamaEngine(**kwargs)  # type: ignore[arg-type]
     raise InferenceError(
-        f"unknown engine {name!r}; expected 'geniex' or 'simulated'"
+        f"unknown engine {name!r}; expected 'geniex', 'ollama' or 'simulated'"
     )

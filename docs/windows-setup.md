@@ -142,6 +142,22 @@ compile. If it fails here, that is a question for the Qualcomm engineers on
 site, and a specific one: *the CLI installs and runs, but the Python binding
 will not build.*
 
+**If it cannot be fixed quickly, you are not stuck.** `--engine ollama` runs
+the same prompt and the same parser against a real vision model on any
+machine:
+
+```powershell
+winget install --id Ollama.Ollama -e
+ollama pull qwen2.5vl:7b
+.venv\Scripts\readykit inspect --manifest manifests\trauma-kit-a.json `
+  --engine ollama --image tray.jpg
+```
+
+Same model family as the GenieX default, so only the runtime differs. It is
+**not the NPU** and never claims to be: every record says `ollama:<model>`.
+Say so out loud if you demo this way - but a working demonstration on the
+wrong runtime beats a broken one on the right runtime.
+
 ---
 
 ## Stage 4 — The model
