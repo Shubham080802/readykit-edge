@@ -48,6 +48,38 @@ DEFAULT_MODEL = "ai-hub-models/Qwen2.5-VL-7B-Instruct"
 """A vision-language bundle precompiled for the Hexagon NPU. Overridable -
 nothing here depends on this particular model, only on it being multimodal."""
 
+NPU_MARKERS = ("htp", "hexagon", "npu", "dsp")
+"""Substrings that identify an NPU backend in a resolved device string. HTP -
+Hexagon Tensor Processor - is what QAIRT calls the NPU, and is the spelling
+that actually turns up in practice."""
+
+_DEVICE_ATTRIBUTES = ("device", "device_map", "compute_unit", "backend")
+"""Where a GenieX build might report what it actually loaded onto. Probed in
+order; builds differ and some report nothing at all."""
+
+
+def resolve_device(model: Any) -> str | None:
+    """What GenieX actually loaded onto, if it will say.
+
+    The requested device_map is not evidence. `"auto"` that quietly fell back
+    to the CPU still reads back as `"auto"`, so asking the model beats
+    trusting the argument.
+
+    Returns None when the build exposes nothing readable - which is a third
+    answer, not a failure. An unknown device must never be reported as a known
+    one, for the same reason an unreadable kit is never reported as a
+    compliant one.
+    """
+    for attribute in _DEVICE_ATTRIBUTES:
+        value = getattr(model, attribute, None)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def looks_like_npu(device: str) -> bool:
+    return any(marker in device.lower() for marker in NPU_MARKERS)
+
 
 class GenieXEngine(InferenceEngine):
     name = "geniex"
@@ -56,6 +88,7 @@ class GenieXEngine(InferenceEngine):
         self,
         model: str = DEFAULT_MODEL,
         device_map: str = "auto",
+        require_npu: bool = False,
         max_new_tokens: int = 768,
         temperature: float = 0.1,
     ) -> None:
@@ -113,11 +146,56 @@ class GenieXEngine(InferenceEngine):
 
         self.model_id = model
         self.device_map = device_map
+
+        # What it actually landed on, which is not necessarily what was asked
+        # for. None means the build would not say.
+        self.resolved_device = resolve_device(self._model)
+
+        if require_npu:
+            self._insist_on_npu()
+
         # Goes onto every Inspection Record. "It ran on the NPU" is a claim an
-        # auditor should be able to check, not one they take on trust.
-        self.name = f"geniex:{model}@{device_map}"
+        # auditor should be able to check, not one they take on trust - so
+        # record the verified device where there is one, and mark it
+        # unverified where there is not, rather than quietly passing the
+        # request off as the result.
+        if self.resolved_device is not None:
+            self.name = f"geniex:{model}@{self.resolved_device}"
+        else:
+            self.name = f"geniex:{model}@{device_map}?unverified"
         self._max_new_tokens = max_new_tokens
         self._temperature = temperature
+
+    def _insist_on_npu(self) -> None:
+        """Refuse to run unless the NPU can be shown to be in use.
+
+        Falling back to the CPU is the failure this exists to prevent. It is
+        silent, it is slow, and every latency number taken afterwards is
+        meaningless while still looking perfectly plausible.
+
+        Note the three outcomes, which are the same three this project applies
+        to kits: it is on the NPU, it is demonstrably not, or it cannot be
+        established. The third is refused rather than waved through, because
+        absence of evidence is not evidence of compliance.
+        """
+        if self.resolved_device is None:
+            raise InferenceError(
+                "--require-npu was set, but this GenieX build does not report "
+                "which device it loaded onto, so NPU use cannot be "
+                "established. Drop the flag to run anyway, or settle it "
+                "empirically: `readykit bench` pinned to the NPU against the "
+                "same run pinned to the CPU. If the latencies match, it is "
+                "not on the NPU whatever anything claims."
+            )
+        if not looks_like_npu(self.resolved_device):
+            raise InferenceError(
+                f"--require-npu was set, but the model loaded onto "
+                f"{self.resolved_device!r}, which is not an NPU backend. "
+                f"Requested device_map was {self.device_map!r}; 'auto' falls "
+                f"back to the CPU silently. Pin it explicitly with "
+                f"--device <runtime>:<compute_unit>, and check `readykit "
+                f"doctor` shows the NPU present and OK."
+            )
 
     def infer(self, frame: Frame, manifest: Manifest) -> Observation:
         prompt = self._render_prompt(manifest)

@@ -74,7 +74,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
     console = sub.add_parser("console", help="serve the operator console")
     console.add_argument("--manifest", type=Path, required=True)
-    console.add_argument("--host", default="127.0.0.1", help="loopback by default")
+    console.add_argument(
+        "--host", default="127.0.0.1", help="loopback only; anything else is refused"
+    )
     console.add_argument("--port", type=int, default=8420)
     console.add_argument(
         "--log", type=Path, default=Path("records/inspections.jsonl")
@@ -192,6 +194,14 @@ def _add_pipeline_args(parser: argparse.ArgumentParser) -> None:
             "Hexagon NPU. Recorded on every inspection"
         ),
     )
+    parser.add_argument(
+        "--require-npu",
+        action="store_true",
+        help=(
+            "refuse to run unless the NPU can be shown to be in use; "
+            "'auto' falls back to the CPU silently"
+        ),
+    )
     parser.add_argument("--scene", default="complete", help="simulator scene")
     parser.add_argument("--camera", type=int, help="camera index (real capture)")
     parser.add_argument(
@@ -267,7 +277,46 @@ def _sleep_with_heartbeats(engine: InspectionEngine, seconds: float) -> None:
         engine.heartbeat()
 
 
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
+"""The only interfaces the console may be served on. Not a default to be
+overridden - a boundary."""
+
+
+def _loopback_refusal(host: str, port: int) -> str | None:
+    """The message to print when `host` must not be served on, else None.
+
+    This device holds a latch open on command, and the console can trigger an
+    inspection. Binding it to a routable interface does not expose a
+    dashboard, it exposes an actuator: anyone who can reach the port can open
+    the cabinet.
+
+    This used to be a warning. A warning is the wrong shape for a mistake you
+    make once, in a hurry, on a machine whose scrollback you are not reading.
+    Refusing means someone who genuinely wants this has to edit the source,
+    which is about the right amount of friction for turning a lock into a
+    network service.
+    """
+    if host in LOOPBACK_HOSTS:
+        return None
+    return (
+        f"\n  {BOLD}refusing to bind to {host}{RESET}\n\n"
+        "  The console can trigger an inspection, and an inspection can\n"
+        "  release the latch. Served off loopback it is a view; served on a\n"
+        "  routable interface it is a remote unlock for anyone who can reach\n"
+        f"  port {port}.\n\n"
+        "  This device is air-gapped by design. Use one of: "
+        f"{', '.join(LOOPBACK_HOSTS)}.\n"
+    )
+
+
 def _cmd_console(args: argparse.Namespace) -> int:
+    # Before anything is imported, loaded or bound: a refused host should cost
+    # nothing and fail instantly.
+    refusal = _loopback_refusal(args.host, args.port)
+    if refusal is not None:
+        print(refusal, file=sys.stderr)
+        return 2
+
     try:
         import uvicorn
     except ImportError:
@@ -281,15 +330,6 @@ def _cmd_console(args: argparse.Namespace) -> int:
     app = create_app(
         manifest=manifest, log_path=args.log, link=open_link("loopback")
     )
-
-    if args.host not in ("127.0.0.1", "localhost", "::1"):
-        # This device holds a latch open on command. Binding it to a routable
-        # interface turns a local view into a remote actuator.
-        print(
-            f"  warning: binding to {args.host} exposes the inspect endpoint "
-            "beyond this machine",
-            file=sys.stderr,
-        )
 
     print(f"\n  {BOLD}ReadyKit Edge console{RESET}  {DIM}{manifest.name}{RESET}")
     print(f"  {DIM}http://{args.host}:{args.port}{RESET}\n")
@@ -549,6 +589,7 @@ def _build_inference(args: argparse.Namespace) -> InferenceEngine:
             "geniex",
             model=args.model or DEFAULT_MODEL,
             device_map=getattr(args, "device", "auto"),
+            require_npu=getattr(args, "require_npu", False),
         )
     return load_engine("simulated")
 

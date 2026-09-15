@@ -242,9 +242,21 @@ With the console:
 # http://127.0.0.1:8420
 ```
 
-The console binds to loopback deliberately. This device releases a physical
-latch on command; binding it to a routable interface turns a local view into a
-remote actuator. `--host` will let you override that and warns when you do.
+The console is **loopback-only, and refuses anything else**. This device
+releases a physical latch on command and the console can trigger an
+inspection, so serving it on a routable interface would not expose a
+dashboard, it would expose a remote unlock to anyone who can reach the port.
+
+`--host` accepts `127.0.0.1`, `localhost` or `::1`. Anything else exits with a
+message explaining why, before it loads or binds anything. This used to be a
+warning; a warning is the wrong shape for a mistake you make once, in a hurry,
+on a machine whose scrollback you are not reading. If you genuinely need it
+elsewhere, edit `LOOPBACK_HOSTS` in `cli.py` - which is about the right amount
+of friction for turning a lock into a network service.
+
+There is no deployment story here and there is not meant to be one. No
+container, no host, no tunnel: the entire system runs on the laptop in front of
+you and talks to a board over a cable.
 
 ---
 

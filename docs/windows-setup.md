@@ -98,6 +98,25 @@ survivable for a demo but not something to discover on stage.
 `--engine geniex` and compare `--device` pinned to the NPU against CPU. If the
 numbers are the same, you are not on the NPU whatever Device Manager says.
 
+Once GenieX is installed, add **`--require-npu`** to any command. It reads back
+what the model actually loaded onto and refuses to run unless that is an NPU
+backend:
+
+```powershell
+.venv\Scripts\readykit inspect --manifest manifests\trauma-kit-a.json `
+  --engine geniex --camera 0 --require-npu
+```
+
+It refuses in two cases, not one: when the model demonstrably landed on the
+CPU, and when the build will not say what it landed on. The second is
+deliberate - `device_map="auto"` reads back as `"auto"` whether it fell back to
+the CPU or not, so "I cannot tell" has to be a refusal rather than a shrug.
+Without the flag the device is still recorded on every inspection, marked
+`?unverified` when it could not be read.
+
+Use it for anything you will quote a latency figure from. A silent CPU
+fallback does not look like a failure; it looks like a slightly slow demo.
+
 ## Stage 3 — GenieX
 
 Two separate installs, and **the order is not optional**: the Python package is
