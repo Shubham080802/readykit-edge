@@ -87,6 +87,14 @@ def _build_parser() -> argparse.ArgumentParser:
     compare_cmd.add_argument("--manifest", type=Path, required=True)
     compare_cmd.set_defaults(handler=_cmd_compare)
 
+    doctor = sub.add_parser(
+        "doctor", help="check this machine can run everything, before you need it to"
+    )
+    doctor.add_argument(
+        "--cameras", action="store_true", help="also probe camera indices 0-2"
+    )
+    doctor.set_defaults(handler=_cmd_doctor)
+
     demo = sub.add_parser(
         "demo", help="run the scripted demonstration sequence"
     )
@@ -281,6 +289,39 @@ def _cmd_scenes(args: argparse.Namespace) -> int:
     )
     print(f"  {'damaged-<key>':<16} {DIM}mark one item damaged{RESET}")
     return 0
+
+
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    from .doctor import Status, run_checks, venv_prefix, worst
+
+    checks = run_checks(probe_cameras=args.cameras)
+    tone = {
+        Status.OK: "\033[38;5;41m",
+        Status.WARN: "\033[38;5;221m",
+        Status.FAIL: "\033[38;5;203m",
+        Status.INFO: DIM,
+    }
+    mark = {Status.OK: "ok", Status.WARN: "warn", Status.FAIL: "FAIL",
+            Status.INFO: "--"}
+
+    print(f"\n  {BOLD}ReadyKit Edge{RESET} {DIM}environment{RESET}\n")
+    for check in checks:
+        colour = tone[check.status]
+        print(f"  {colour}{mark[check.status]:>4}{RESET}  {check.name:<16}{check.detail}")
+        for item in check.items:
+            print(f"        {DIM}{item}{RESET}")
+        if (check.remedy and check.status is not Status.OK) or check.remedy:
+            print(f"        {DIM}{check.remedy}{RESET}")
+
+    overall = worst(checks)
+    summary = {
+        Status.OK: (tone[Status.OK], "everything needed is present"),
+        Status.WARN: (tone[Status.WARN], "runs, with something reduced"),
+        Status.FAIL: (tone[Status.FAIL], "something needed is missing"),
+    }[overall]
+    print(f"\n  {summary[0]}{BOLD}{summary[1]}{RESET}")
+    print(f"  {DIM}commands on this platform: {venv_prefix()} ...{RESET}\n")
+    return 0 if overall is not Status.FAIL else 1
 
 
 def _cmd_demo(args: argparse.Namespace) -> int:

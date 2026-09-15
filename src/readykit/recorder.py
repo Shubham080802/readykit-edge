@@ -106,7 +106,11 @@ class InspectionLog:
         payload["hash"] = record_hash(payload)
 
         line = json.dumps(payload, separators=(",", ":"), sort_keys=True)
-        with self.path.open("a", encoding="utf-8") as handle:
+        # newline="" so Windows does not translate to \r\n. The hash chain
+        # survives either way - verification strips line endings - but an
+        # audit file that is byte-identical on every platform is one an
+        # auditor can diff between machines without explaining the noise.
+        with self.path.open("a", encoding="utf-8", newline="") as handle:
             handle.write(line + "\n")
             handle.flush()
         return payload

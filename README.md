@@ -83,6 +83,21 @@ divergence.
 
 ---
 
+## First, on unfamiliar hardware
+
+```bash
+readykit doctor
+```
+
+Reports whether GenieX is installed, **which serial port the UNO Q is on**,
+whether the camera opens, whether the manifests parse, and whether the audit
+log is writable — each with the exact command that fixes it. Run it before you
+need any of those to work.
+
+> **On a Snapdragon X Elite AI PC** the host is Windows ARM64, so the commands
+> below are written `.venv/bin/readykit` but you type `.venv\Scripts\readykit`.
+> `readykit doctor` prints the form that works on the machine it is running on.
+
 ## Running it without the hardware
 
 The full pipeline runs on any machine. Capture, inference, and the host link

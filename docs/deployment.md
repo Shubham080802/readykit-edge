@@ -11,6 +11,16 @@ the hardware agrees rather than discovering the behaviour from scratch.
 
 ---
 
+## 0. Check the machine
+
+```bash
+readykit doctor            # add --cameras to probe camera indices too
+```
+
+Everything below assumes a POSIX shell. The Snapdragon X Elite AI PCs are
+Windows ARM64, so `.venv/bin/readykit` is `.venv\Scripts\readykit` there;
+`readykit doctor` prints whichever applies.
+
 ## 1. Get a model onto the device
 
 GenieX loads models **by repo id**, not from a file you export yourself. There

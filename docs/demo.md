@@ -11,6 +11,7 @@ thing costs you credit on everything else you said.
 ## Before you start
 
 ```bash
+readykit doctor                                  # every dependency and port
 readykit audit --log records/inspections.jsonl   # chain intact
 readykit bench --manifest manifests/trauma-kit-a.json --runs 30
 readykit console --manifest manifests/trauma-kit-a.json

@@ -210,8 +210,17 @@ class _frame_on_disk:
         return self._path
 
     def __exit__(self, *exc: object) -> None:
-        if self._path is not None:
+        if self._path is None:
+            return
+        try:
             self._path.unlink(missing_ok=True)
+        except OSError:
+            # Windows refuses to unlink a file another process still holds.
+            # A frame we failed to clean up is untidy; an inspection that
+            # crashed during cleanup would be a latch decision lost to
+            # housekeeping. Leave it and move on.
+            pass
+        finally:
             self._path = None
 
 

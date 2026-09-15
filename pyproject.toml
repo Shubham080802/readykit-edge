@@ -46,5 +46,5 @@ files = ["src", "tests"]
 # imported inside a try/except that raises a typed domain error, and the
 # handle is held as Any.
 [[tool.mypy.overrides]]
-module = ["cv2", "serial", "geniex"]
+module = ["cv2", "serial", "serial.*", "geniex"]
 ignore_missing_imports = true
