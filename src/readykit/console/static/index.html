@@ -33,6 +33,24 @@
     </div>
   </header>
 
+  <section class="panel camera" id="camera" hidden>
+    <div class="camera__bar">
+      <p class="camera__hint">Lay the items out together in view, then inspect.</p>
+      <div class="camera__actions" id="camera-actions"></div>
+    </div>
+    <figure class="camera__pane">
+      <figcaption class="camera__cap">Live <span class="panel__count">not recorded</span></figcaption>
+      <img class="camera__img" id="camera-live" alt="What the camera sees now">
+    </figure>
+    <figure class="camera__pane">
+      <figcaption class="camera__cap">Judged frame <span class="panel__count" id="judged-when"></span></figcaption>
+      <img class="camera__img" id="camera-judged" alt="The frame the last verdict was decided on" hidden>
+      <p class="camera__empty" id="judged-empty">Press Inspect to see what the model judges.</p>
+      <ul class="seen" id="judged-tags"></ul>
+      <p class="camera__status" id="judged-status"></p>
+    </figure>
+  </section>
+
   <section class="verdict" id="verdict" data-verdict="none" aria-live="polite">
     <div class="verdict__head">
       <h1 class="verdict__word" id="verdict-word">READY</h1>
@@ -51,19 +69,6 @@
     </div>
   </section>
 
-  <section class="panel camera" id="camera" hidden>
-    <div class="camera__pane">
-      <h2 class="panel__title">Camera <span class="panel__count">live · not recorded</span></h2>
-      <img class="camera__img" id="camera-live" alt="What the camera sees now">
-    </div>
-    <div class="camera__pane">
-      <h2 class="panel__title">What the model judged <span class="panel__count" id="judged-when"></span></h2>
-      <img class="camera__img" id="camera-judged" alt="The frame the last verdict was decided on" hidden>
-      <p class="camera__empty" id="judged-empty">Press Inspect to see the frame the model judges.</p>
-      <ul class="tags" id="judged-tags"></ul>
-      <p class="camera__status" id="judged-status"></p>
-    </div>
-  </section>
 
   <div class="grid">
 
@@ -130,8 +135,8 @@
         </div>
       </div>
 
-      <h2 class="panel__title" style="margin-top:24px">Run an inspection</h2>
-      <div class="controls">
+      <h2 class="panel__title" style="margin-top:24px" id="run-title">Run an inspection</h2>
+      <div class="controls" id="run-controls">
         <select class="select" id="scene" aria-label="Simulator scene"></select>
         <span class="airgap" id="source-live" hidden
               ><span id="source-input">real frames</span

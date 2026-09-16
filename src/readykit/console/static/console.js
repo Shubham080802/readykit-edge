@@ -134,6 +134,8 @@ function renderBlueprint(last) {
   if (last.raw_reply) {
     const quote = document.createElement("blockquote");
     quote.className = "compare__quote";
+    quote.title = "Click to show the full reply";
+    quote.addEventListener("click", () => quote.classList.toggle("is-open"));
     quote.textContent = last.raw_reply.trim().split("\n")[0];
     box.appendChild(quote);
   }
@@ -439,26 +441,33 @@ function renderJudged(last) {
 
   for (const item of last.items) {
     const tag = document.createElement("li");
-    tag.className = "tag";
+    tag.className = "seen__row";
+    let state;
     if (item.model_said) {
       /* The model named this item, but said no kit is in view, so the
-       * reading was set aside. Show its words, marked as not counted -
-       * "unreadable 0%" alone hides that it recognised the thing at all. */
+       * reading was set aside. Show its words, marked as not counted. */
       tag.dataset.presence = "set-aside";
-      /* "not counted" only where there was something to count. */
-      tag.textContent =
-        item.model_said === "unreadable"
-          ? `${item.label}: unreadable`
-          : `${item.label}: ${item.model_said} · not counted`;
       tag.title = "Not counted: the model said no kit is in view";
+      state = item.model_said === "unreadable"
+        ? "unreadable"
+        : `${item.model_said} · not counted`;
     } else {
       tag.dataset.presence = item.presence;
       const confidence =
         typeof item.confidence === "number" && item.presence !== "unreported"
           ? ` ${Math.round(item.confidence * 100)}%`
           : "";
-      tag.textContent = `${item.label}: ${item.presence}${confidence}`;
+      state = `${item.presence}${confidence}`;
     }
+    const dot = document.createElement("span");
+    dot.className = "seen__dot";
+    const name = document.createElement("span");
+    name.className = "seen__name";
+    name.textContent = item.label;
+    const value = document.createElement("span");
+    value.className = "seen__state";
+    value.textContent = state;
+    tag.append(dot, name, value);
     tags.appendChild(tag);
   }
 
@@ -564,6 +573,10 @@ async function boot() {
       "Inspecting real frames. Point the camera at the kit and press Inspect.";
     $("camera").hidden = false;
     $("auto-wrap").hidden = false;
+    /* Put Inspect beside the camera it acts on, instead of a scroll away. */
+    const actions = $("camera-actions");
+    for (const id of ["source-live", "run", "auto-wrap"]) actions.appendChild($(id));
+    for (const id of ["run-title", "run-controls", "scene-description"]) $(id).hidden = true;
     $("auto").addEventListener("change", () => {
       if ($("auto").checked) runInspection();
     });

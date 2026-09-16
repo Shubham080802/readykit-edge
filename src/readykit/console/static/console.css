@@ -553,8 +553,6 @@ body { min-height: 100vh; }
 .records .c-reason { color: var(--ink-muted); }
 
 .tag {
-  max-width: 100%;
-  overflow-wrap: anywhere;
   font-family: var(--mono);
   font-size: 11px;
   letter-spacing: 0.4px;
@@ -711,60 +709,108 @@ body { min-height: 100vh; }
 
 .camera {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: var(--space-md);
-  margin-bottom: var(--space-md);
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--space-md) var(--space-lg);
+  margin-bottom: var(--space-lg);
 }
 
-.camera__img {
+.camera__bar {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding-bottom: var(--space-md);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.camera__hint { margin: 0; font-size: 14px; color: var(--ink-muted); }
+
+.camera__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.camera__pane { margin: 0; min-width: 0; }
+
+.camera__cap {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-xs);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  text-transform: uppercase;
+  color: var(--ink-subtle);
+  white-space: nowrap;
+}
+
+.camera__img,
+.camera__empty {
   display: block;
   width: 100%;
-  aspect-ratio: 4 / 3;
-  object-fit: contain;
-  background: var(--canvas);
-  border: 1px solid var(--hairline);
+  aspect-ratio: 16 / 9;
   border-radius: var(--radius-md);
+  border: 1px solid var(--hairline);
 }
 
+.camera__img { object-fit: contain; background: var(--canvas); }
+
 .camera__empty {
-  aspect-ratio: 4 / 3;
   display: grid;
   place-items: center;
   margin: 0;
   padding: var(--space-md);
   text-align: center;
+  font-size: 14px;
+  color: var(--ink-tertiary);
+  border-style: dashed;
+  border-color: var(--hairline-strong);
+}
+
+/* One row per required item: a dot for what the model reported, the item,
+ * and the reading. Coloured by the reading, not by the verdict. */
+.seen { list-style: none; margin: var(--space-sm) 0 0; padding: 0; }
+
+.seen__row {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 7px 2px;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 14px;
+}
+
+.seen__row:last-child { border-bottom: 0; }
+.seen__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-tertiary); }
+.seen__name { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seen__state { font-family: var(--mono); font-size: 12px; color: var(--ink-subtle); }
+
+.seen__row[data-presence="found"] .seen__dot { background: var(--verdict-pass); }
+.seen__row[data-presence="absent"] .seen__dot,
+.seen__row[data-presence="damaged"] .seen__dot { background: var(--verdict-fail); }
+.seen__row[data-presence="unreadable"] .seen__dot,
+.seen__row[data-presence="unreported"] .seen__dot { background: var(--verdict-hold); }
+.seen__row[data-presence="set-aside"] .seen__dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--ink-tertiary);
+}
+.seen__row[data-presence="set-aside"] .seen__name { color: var(--ink-subtle); }
+
+.camera__status {
+  margin: var(--space-sm) 0 0;
+  font-size: 13px;
+  line-height: 1.5;
   color: var(--ink-subtle);
-  border: 1px dashed var(--hairline-strong);
-  border-radius: var(--radius-md);
 }
 
-/* One tag per required item, coloured by what the model reported - not by
- * the verdict, which the banner already carries. */
-.tags {
-  list-style: none;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: var(--space-xs) 0 0;
-  padding: 0;
-}
-
-.tag {
-  max-width: 100%;
-  overflow-wrap: anywhere;
-  font-family: var(--mono);
-  font-size: 12px;
-  padding: 3px 8px;
-  border-radius: 9999px;
-  border: 1px solid var(--hairline-strong);
-  color: var(--ink-muted);
-}
-
-.tag[data-presence="found"] { border-color: color-mix(in srgb, var(--verdict-pass) 55%, transparent); }
-.tag[data-presence="absent"],
-.tag[data-presence="damaged"] { border-color: color-mix(in srgb, var(--verdict-fail) 55%, transparent); }
-.tag[data-presence="unreadable"],
-.tag[data-presence="unreported"] { border-color: color-mix(in srgb, var(--verdict-hold) 55%, transparent); }
+.camera__status:empty { display: none; }
 
 .auto {
   display: inline-flex;
@@ -775,16 +821,14 @@ body { min-height: 100vh; }
   cursor: pointer;
 }
 
-/* The model named this item, but the kit check set its reading aside. */
-.tag[data-presence="set-aside"] {
-  border-style: dashed;
-  border-color: var(--hairline-tertiary);
-  color: var(--ink-subtle);
+/* The verbatim reply is evidence, not reading material: three lines until
+ * someone asks for the rest. */
+.compare__quote {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  cursor: pointer;
 }
-
-.camera__status {
-  margin: var(--space-xs) 0 0;
-  font-size: 13px;
-  color: var(--ink-subtle);
-  min-height: 1.4em;
-}
+.compare__quote.is-open { display: block; }
