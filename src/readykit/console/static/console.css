@@ -966,3 +966,11 @@ body { min-height: 100vh; }
 @media (prefers-reduced-motion: reduce) {
   .flow[data-state="running"] path { animation: none; }
 }
+
+/* Records: the date and id never wrap; the reason and the command do, so a
+ * long "observed only - the sentinel owns actuation" cannot push the id out
+ * of view. */
+.records .c-cmd { font-family: var(--mono); font-size: 12px; color: var(--ink-tertiary); overflow-wrap: anywhere; }
+.records .c-time { white-space: nowrap; }
+.records .c-clock { color: var(--ink-subtle); margin-top: 2px; }
+.records .c-reason { min-width: 180px; }

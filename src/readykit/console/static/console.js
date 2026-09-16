@@ -368,7 +368,20 @@ function renderRecords(rows, tally) {
 
     const time = document.createElement("td");
     time.className = "c-time";
-    time.textContent = String(row.started_at || "").slice(11, 19);
+    /* Local date and time, not a slice of the UTC timestamp - that showed
+     * the wrong hour for anyone not on UTC, and no date at all. */
+    const started = row.started_at ? new Date(row.started_at) : null;
+    if (started) {
+      const day = document.createElement("div");
+      day.textContent = started.toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" });
+      const clock = document.createElement("div");
+      clock.className = "c-clock";
+      clock.textContent = started.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      time.append(day, clock);
+    } else {
+      time.textContent = "—";
+    }
+    if (started) time.title = row.started_at;
 
     const verdict = document.createElement("td");
     const tag = document.createElement("span");
@@ -382,7 +395,7 @@ function renderRecords(rows, tally) {
     reason.textContent = row.reason;
 
     const commanded = document.createElement("td");
-    commanded.className = "c-time";
+    commanded.className = "c-cmd";
     commanded.textContent = row.commanded;
 
     const id = document.createElement("td");
@@ -842,6 +855,9 @@ async function boot() {
     $("scene-description").textContent =
       "Inspecting real frames. Point the camera at the kit and press Inspect.";
     $("camera").hidden = false;
+    /* The camera panel carries the verdict now - the mark, what was
+     * recognised, and why - so the big verdict box below only repeats it. */
+    $("verdict").hidden = true;
     $("auto-wrap").hidden = false;
     /* Put Inspect beside the camera it acts on, instead of a scroll away. */
     const actions = $("camera-actions");
