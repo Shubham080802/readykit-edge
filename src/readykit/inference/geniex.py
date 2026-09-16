@@ -34,6 +34,8 @@ Docs: https://geniex.aihub.qualcomm.com/en/run/python/api-reference
 
 from __future__ import annotations
 
+import base64
+import contextlib
 import os
 import tempfile
 from pathlib import Path
@@ -73,6 +75,20 @@ that actually turns up in practice."""
 _DEVICE_ATTRIBUTES = ("device", "device_map", "compute_unit", "backend")
 """Where a GenieX build might report what it actually loaded onto. Probed in
 order; builds differ and some report nothing at all."""
+
+_PROBE_JPEG = base64.b64decode(
+    "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRof"
+    "Hh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAARCAABAAEDASIAAhEBAxEB"
+    "/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9"
+    "AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3"
+    "ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKj"
+    "pKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6"
+    "/9oADAMBAAIRAxEAPwD3+iiigD//2Q=="
+)
+"""A 1x1 JPEG, used only to make a build name the device it is running on.
+
+Small enough that the probe generation below costs well under a second, and
+self-contained so the probe needs neither a camera nor OpenCV."""
 
 
 def resolve_device(model: Any) -> str | None:
@@ -196,13 +212,24 @@ class GenieXEngine(InferenceEngine):
         absence of evidence is not evidence of compliance.
         """
         if self.resolved_device is None:
+            # The build exposes nothing on the model object. That is not the
+            # same as the device being unknowable - it is named in the profile
+            # of any completed generation - so ask, rather than refuse a run
+            # that is in fact on the NPU. Doing it here keeps the refusal
+            # where it belongs: before the first real frame, not after it.
+            self.resolved_device = self._probe_device()
+
+        if self.resolved_device is None:
             raise InferenceError(
                 "--require-npu was set, but this GenieX build does not report "
-                "which device it loaded onto, so NPU use cannot be "
-                "established. Drop the flag to run anyway, or settle it "
-                "empirically: `readykit bench` pinned to the NPU against the "
-                "same run pinned to the CPU. If the latencies match, it is "
-                "not on the NPU whatever anything claims."
+                "which device it loaded onto, and a probe generation did not "
+                "name one either, so NPU use cannot be established. Drop the "
+                "flag to run anyway, or settle it empirically with `readykit "
+                "bench`. Note that a model published for one runtime only - "
+                "the Qualcomm AI Hub W4A16 bundles are NPU-only - ignores a "
+                "device pin rather than honouring it, so matching NPU and CPU "
+                "latencies there mean the pin did nothing, not that the NPU "
+                "is idle."
             )
         if not looks_like_npu(self.resolved_device):
             raise InferenceError(
@@ -213,6 +240,39 @@ class GenieXEngine(InferenceEngine):
                 f"--device <runtime>:<compute_unit>, and check `readykit "
                 f"doctor` shows the NPU present and OK."
             )
+
+    def _probe_device(self) -> str | None:
+        """Generate one throwaway token, to make the build name its device.
+
+        Returns None if the probe cannot answer - a failed probe is not
+        evidence about the device either way, so it leaves the question open
+        for the caller to refuse on.
+        """
+        handle, name = tempfile.mkstemp(prefix="readykit-probe-", suffix=".jpg")
+        try:
+            with os.fdopen(handle, "wb") as out:
+                out.write(_PROBE_JPEG)
+            messages = [
+                {
+                    "role": "user",
+                    "content": [{"type": "image"}, {"type": "text", "text": "hi"}],
+                }
+            ]
+            prompt = self._model.tokenizer.apply_chat_template(
+                messages, add_generation_prompt=True
+            )
+            output = self._model.generate(
+                prompt, images=[name], max_new_tokens=1, stream=False
+            )
+        except Exception:
+            return None
+        finally:
+            with contextlib.suppress(OSError):
+                os.unlink(name)
+
+        profile = getattr(output, "profile", None)
+        device = getattr(profile, "device", None)
+        return device.strip() if isinstance(device, str) and device.strip() else None
 
     def _observe_device(self, output: Any) -> None:
         """Fill in the device from a completed generation, if still unknown.

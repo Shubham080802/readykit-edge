@@ -145,8 +145,18 @@ Inference still works without it; it falls back to CPU and gets slow, which is
 survivable for a demo but not something to discover on stage.
 
 **The check that actually settles it** comes later: run `readykit bench` with
-`--engine geniex` and compare `--device` pinned to the NPU against CPU. If the
-numbers are the same, you are not on the NPU whatever Device Manager says.
+`--engine geniex` and compare `--device` pinned to the NPU against CPU.
+
+Read that comparison carefully, because it has a trap. It only means anything
+for a model that *can* run on both. The Qualcomm AI Hub W4A16 bundles - the
+default `qualcomm/Qwen3-VL-4B-Instruct` among them - are compiled for the
+Hexagon NPU only, and a device pin they cannot honour is **ignored, not
+refused**. Measured here: `qairt:npu` and `qairt:cpu` produced identical
+latency, and GenieX reported `device=NPU, backend=qairt` for both, and for a
+bare `cpu` pin as well. Identical numbers there mean the pin did nothing -
+the opposite of the naive reading. Use `--require-npu`, which reads the device
+back rather than inferring it from a stopwatch, and keep the latency
+comparison for GGUF models, which genuinely do run either way.
 
 Once GenieX is installed, add **`--require-npu`** to any command. It reads back
 what the model actually loaded onto and refuses to run unless that is an NPU
