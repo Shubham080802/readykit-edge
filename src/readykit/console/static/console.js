@@ -436,6 +436,15 @@ function renderJudged(last) {
   };
   img.src = `/api/inspected.jpg?id=${encodeURIComponent(id)}`;
   $("mark").dataset.state = last.verdict;
+  $("flow").dataset.state = "done";
+
+  /* The headline is what the model recognised, in its own words - including
+   * a reading the kit check set aside, which the rows below mark as not
+   * counted. The verdict and the latch are still decided only by the check. */
+  const recognised = last.items
+    .filter((item) => (item.model_said || item.presence) === "found")
+    .map((item) => item.label);
+  showNames(recognised.length ? recognised.join(", ") : "Nothing recognised", !recognised.length);
   $("judged-when").textContent = last.started_at
     ? new Date(last.started_at).toLocaleTimeString()
     : "";
@@ -562,6 +571,8 @@ function resetBrowserCamera() {
   $("judged-status").textContent = "";
   $("judged-when").textContent = "";
   $("mark").dataset.state = "none";
+  $("flow").dataset.state = "none";
+  showNames("—", true);
 }
 
 /* ------------------------------------------------------- hold still to inspect
@@ -666,6 +677,12 @@ function stopHoldWatch() {
  * straight away with a running mark, rather than leave the old picture there
  * for the ~20s the model takes. The server's copy replaces it when the
  * verdict lands - the same bytes. */
+function showNames(text, muted) {
+  const names = $("result-names");
+  names.textContent = text;
+  names.dataset.muted = String(Boolean(muted));
+}
+
 function showCapturedFrame(blob) {
   const judged = $("camera-judged");
   judged.onload = () => URL.revokeObjectURL(judged.src);
@@ -676,6 +693,8 @@ function showCapturedFrame(blob) {
   $("judged-tags").innerHTML = "";
   $("judged-when").textContent = new Date().toLocaleTimeString();
   $("mark").dataset.state = "judging";
+  $("flow").dataset.state = "running";
+  showNames("Recognising…", true);
 }
 
 /* One frame, at most 960px on its longest side - the model gains nothing
@@ -751,6 +770,8 @@ async function runInspection() {
     $("auto").checked = false;
     stopHoldWatch();
     $("mark").dataset.state = "none";
+    $("flow").dataset.state = "none";
+    showNames("—", true);
     failed = true;
   } finally {
     if (source.live) {

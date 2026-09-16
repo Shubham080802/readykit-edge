@@ -709,7 +709,8 @@ body { min-height: 100vh; }
 
 .camera {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 56px minmax(0, 0.85fr);
+  align-items: start;
   gap: var(--space-md) var(--space-lg);
   margin-bottom: var(--space-lg);
 }
@@ -916,4 +917,52 @@ body { min-height: 100vh; }
 @media (prefers-reduced-motion: reduce) {
   .mark[data-state="judging"] .mark__ring { animation-duration: 2400ms; }
   .mark__glyph { animation: none !important; stroke-dashoffset: 0; }
+}
+
+/* ------------------------------------------- captured -> arrow -> recognised */
+
+.flow { align-self: center; margin-top: 24px; }
+.flow svg { width: 56px; height: 24px; overflow: visible; }
+.flow[data-state="none"] { visibility: hidden; }
+.flow path { fill: none; stroke: var(--hairline-strong); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Running while the model works: dashes travel towards the result. */
+.flow[data-state="running"] path { stroke: var(--primary-hover); }
+.flow[data-state="running"] .flow__line { stroke-dasharray: 6 6; animation: flow-run 600ms linear infinite; }
+.flow[data-state="running"] .flow__head { animation: flow-pulse 1200ms ease-in-out infinite; }
+.flow[data-state="done"] path { stroke: var(--ink-subtle); }
+
+@keyframes flow-run { to { stroke-dashoffset: -12; } }
+@keyframes flow-pulse { 50% { opacity: 0.35; } }
+
+.result-card__body {
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  /* Same height as the frames beside it; grows if the readings need more. */
+  aspect-ratio: 3 / 2;
+}
+
+.result-card__head { display: flex; align-items: center; gap: var(--space-sm); }
+
+.result-card__names {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.6px;
+  line-height: 1.15;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.result-card__names[data-muted="true"] { font-size: 18px; font-weight: 500; color: var(--ink-subtle); }
+
+.result-card .seen { margin-top: var(--space-md); }
+
+@media (max-width: 1000px) {
+  .camera { grid-template-columns: minmax(0, 1fr); }
+  .flow { justify-self: center; margin: 0; transform: rotate(90deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow[data-state="running"] path { animation: none; }
 }

@@ -54,21 +54,35 @@
       </div>
     </figure>
     <figure class="camera__pane">
-      <figcaption class="camera__cap">Judged frame <span class="panel__count" id="judged-when"></span></figcaption>
+      <figcaption class="camera__cap">Image captured <span class="panel__count" id="judged-when"></span></figcaption>
       <img class="camera__img" id="camera-judged" alt="The frame the last verdict was decided on" hidden>
-      <p class="camera__empty" id="judged-empty">Press Inspect to see what the model judges.</p>
-      <div class="result">
-        <span class="mark" id="mark" data-state="none" aria-hidden="true">
-          <svg viewBox="0 0 40 40">
-            <circle cx="20" cy="20" r="17" class="mark__ring"></circle>
-            <path class="mark__glyph mark__pass" d="M12 20.5l5.5 5.5L28.5 14"></path>
-            <path class="mark__glyph mark__fail" d="M14 14l12 12M26 14L14 26"></path>
-            <path class="mark__glyph mark__hold" d="M15.5 15.5a4.5 4.5 0 1 1 6.2 4.2c-1.1.5-1.7 1.3-1.7 2.5v1M20 27.5v.1"></path>
-          </svg>
-        </span>
+      <p class="camera__empty" id="judged-empty">Press Inspect, or tick Auto and hold the items still.</p>
+    </figure>
+
+    <div class="flow" id="flow" data-state="none" aria-hidden="true">
+      <svg viewBox="0 0 64 24">
+        <path class="flow__line" d="M4 12 H52"></path>
+        <path class="flow__head" d="M46 5 L57 12 L46 19"></path>
+      </svg>
+    </div>
+
+    <figure class="camera__pane result-card" id="result-card">
+      <figcaption class="camera__cap">Recognised</figcaption>
+      <div class="result-card__body">
+        <div class="result-card__head">
+          <span class="mark" id="mark" data-state="none" aria-hidden="true">
+            <svg viewBox="0 0 40 40">
+              <circle cx="20" cy="20" r="17" class="mark__ring"></circle>
+              <path class="mark__glyph mark__pass" d="M12 20.5l5.5 5.5L28.5 14"></path>
+              <path class="mark__glyph mark__fail" d="M14 14l12 12M26 14L14 26"></path>
+              <path class="mark__glyph mark__hold" d="M15.5 15.5a4.5 4.5 0 1 1 6.2 4.2c-1.1.5-1.7 1.3-1.7 2.5v1M20 27.5v.1"></path>
+            </svg>
+          </span>
+          <p class="result-card__names" id="result-names">—</p>
+        </div>
         <ul class="seen" id="judged-tags"></ul>
+        <p class="camera__status" id="judged-status"></p>
       </div>
-      <p class="camera__status" id="judged-status"></p>
     </figure>
   </section>
 
