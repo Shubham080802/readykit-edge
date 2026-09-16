@@ -278,6 +278,84 @@ class TestExplainingASetAsideReading:
         assert all(item["model_said"] is None for item in body["items"])
 
 
+JPEG = b"\xff\xd8\xff\xe0" + b"frame-bytes"
+
+
+class _BytesEngine(_FixedEngine):
+    """Checks it was handed exactly the bytes the browser sent."""
+
+    def infer(self, frame: Frame, manifest: Manifest) -> Observation:
+        assert frame.image == JPEG
+        return super().infer(Frame(image=b"x", digest="d"), manifest)
+
+
+@pytest.fixture
+def browser_client(
+    tmp_path: Path, node: VirtualActuatorNode
+) -> fastapi_testclient.TestClient:
+    app = create_app(
+        manifest=KIT,
+        log_path=tmp_path / "inspections.jsonl",
+        link=LoopbackLink(node),
+        engine_factory=_BytesEngine,
+        source_label="browser camera",
+        engine_label="stub-vlm",
+        browser_camera=True,
+    )
+    return fastapi_testclient.TestClient(app)
+
+
+class TestTheBrowserOpensTheCamera:
+    """Opening the camera from the host needs camera permission for whatever
+    launched the server - on a Mac, a Terminal someone had to open by hand
+    every time. The browser already holds that permission, so it captures the
+    frame and posts it, and the host never touches a camera."""
+
+    def test_the_page_is_told_to_use_its_own_camera(
+        self, browser_client: fastapi_testclient.TestClient
+    ) -> None:
+        body = browser_client.get("/api/source").json()
+        assert body["live"] is True
+        assert body["browser_camera"] is True
+
+    def test_a_posted_frame_is_inspected_and_shown_as_judged(
+        self, browser_client: fastapi_testclient.TestClient
+    ) -> None:
+        response = browser_client.post(
+            "/api/inspect-frame", content=JPEG, headers={"Content-Type": "image/jpeg"}
+        )
+        assert response.status_code == 200
+        assert response.json()["verdict"] == "pass"
+        assert browser_client.get("/api/inspected.jpg").content == JPEG
+
+    def test_the_host_camera_endpoint_has_nothing_to_show(
+        self, browser_client: fastapi_testclient.TestClient
+    ) -> None:
+        assert browser_client.get("/api/camera.jpg").status_code == 404
+
+    def test_an_inspection_without_a_frame_is_refused(
+        self, browser_client: fastapi_testclient.TestClient
+    ) -> None:
+        """Nothing was captured, so there is nothing to judge - not a verdict
+        about an empty picture."""
+        assert browser_client.post("/api/inspect", json={}).status_code == 400
+        assert browser_client.post("/api/inspect-frame", content=b"").status_code == 400
+
+    def test_something_that_is_not_an_image_is_refused(
+        self, browser_client: fastapi_testclient.TestClient
+    ) -> None:
+        response = browser_client.post("/api/inspect-frame", content=b"not a picture")
+        assert response.status_code == 415
+
+    def test_a_console_without_the_flag_takes_no_posted_frames(
+        self, live_client: fastapi_testclient.TestClient
+    ) -> None:
+        """A console reading its own camera must not also accept pictures from
+        anything that can reach it."""
+        response = live_client.post("/api/inspect-frame", content=JPEG)
+        assert response.status_code == 404
+
+
 class TestStaticSurface:
     def test_index_is_served(
         self, client: fastapi_testclient.TestClient

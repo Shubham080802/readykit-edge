@@ -507,6 +507,49 @@ function startLiveView() {
   next();
 }
 
+/* ------------------------------------------------------------ browser camera */
+
+/* The browser opens the camera, not the host. Started on the first Inspect
+ * and left running, so the next press is instant and you can aim between
+ * looks. */
+let stream = null;
+
+async function ensureBrowserCamera() {
+  if (stream && stream.active) return;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    throw new Error("this browser cannot open a camera from this page");
+  }
+  stream = await navigator.mediaDevices.getUserMedia({
+    video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+    audio: false,
+  });
+  const video = $("camera-video");
+  video.srcObject = stream;
+  video.hidden = false;
+  $("live-empty").hidden = true;
+  await video.play();
+  /* The first frames are dark while exposure settles. */
+  await new Promise((resolve) => setTimeout(resolve, 700));
+}
+
+/* One frame, at most 960px on its longest side - the model gains nothing
+ * from more, and it halves the time the model spends reading it. */
+async function captureBrowserFrame() {
+  const video = $("camera-video");
+  const scale = Math.min(1, 960 / Math.max(video.videoWidth, video.videoHeight));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(video.videoWidth * scale);
+  canvas.height = Math.round(video.videoHeight * scale);
+  canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+  return new Promise((resolve, reject) =>
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error("could not capture a frame"))),
+      "image/jpeg",
+      0.9,
+    ),
+  );
+}
+
 async function refresh() {
   const [state, records] = await Promise.all([
     getJSON("/api/state"),
@@ -529,21 +572,40 @@ async function runInspection() {
   button.textContent = "Inspecting…";
   if (source.live) showJudging(true);
 
+  let failed = false;
   try {
     /* A live console sends no scene, and the server refuses one. The input
      * is whatever the camera is pointed at; there is nothing to choose. */
-    await getJSON("/api/inspect", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: source.live ? "{}" : JSON.stringify({ scene: $("scene").value }),
-    });
+    if (source.browser_camera) {
+      await ensureBrowserCamera();
+      await getJSON("/api/inspect-frame", {
+        method: "POST",
+        headers: { "Content-Type": "image/jpeg" },
+        body: await captureBrowserFrame(),
+      });
+    } else {
+      await getJSON("/api/inspect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: source.live ? "{}" : JSON.stringify({ scene: $("scene").value }),
+      });
+    }
     await refresh();
   } catch (error) {
-    $("verdict-reason").textContent = `Console error: ${error.message}`;
+    const denied = error && error.name === "NotAllowedError";
+    const message = denied
+      ? "Camera access was blocked. Allow the camera for this page in the browser's address bar, then press Inspect again."
+      : `Console error: ${error.message}`;
+    $("verdict-reason").textContent = message;
+    if (source.live) $("judged-status").textContent = message;
+    $("auto").checked = false;
+    failed = true;
   } finally {
     if (source.live) {
       showJudging(false);
-      judgedId = null; /* redraw tags and status for the verdict just landed */
+      /* Redraw for the verdict just landed - but not after a failure, or the
+       * next poll would wipe the message saying what went wrong. */
+      if (!failed) judgedId = null;
     }
     busy = false;
     button.disabled = false;
@@ -580,7 +642,12 @@ async function boot() {
     $("auto").addEventListener("change", () => {
       if ($("auto").checked) runInspection();
     });
-    startLiveView();
+    if (source.browser_camera) {
+      $("camera-live").hidden = true;
+      $("live-empty").hidden = false;
+    } else {
+      startLiveView();
+    }
   } else {
     const payload = await getJSON("/api/scenes");
     scenes = payload.scenes;

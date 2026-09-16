@@ -194,6 +194,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="inspect still images from disk instead of a camera",
     )
     console.add_argument(
+        "--browser-camera",
+        action="store_true",
+        help=(
+            "let the browser open the camera when you press Inspect, so the "
+            "console itself needs no camera permission. For rehearsal: a page "
+            "that sends frames can be handed any picture, so never use this "
+            "for a latch guarding a real kit"
+        ),
+    )
+    console.add_argument(
         "--engine",
         default="simulated",
         choices=("simulated", "geniex", "ollama"),
@@ -502,7 +512,16 @@ def _cmd_console(args: argparse.Namespace) -> int:
         link = open_link("loopback")
         actuator = "simulated node"
 
-    source_factory, engine_factory, source_label, engine_label = _console_input(args)
+    source_factory: Callable[[], FrameSource] | None
+    engine_factory: Callable[[], InferenceEngine] | None
+    if args.browser_camera:
+        source_factory, engine_factory, source_label, engine_label = (
+            _browser_camera_input(args)
+        )
+    else:
+        source_factory, engine_factory, source_label, engine_label = (
+            _console_input(args)
+        )
 
     app = create_app(
         manifest=manifest,
@@ -512,6 +531,7 @@ def _cmd_console(args: argparse.Namespace) -> int:
         engine_factory=engine_factory,
         source_label=source_label,
         engine_label=engine_label,
+        browser_camera=args.browser_camera,
     )
 
     print(f"\n  {BOLD}ReadyKit Edge console{RESET}  {DIM}{manifest.name}{RESET}")
@@ -577,6 +597,28 @@ def _console_input(
         _describe_source(args),
         inference.name,
     )
+
+
+def _browser_camera_input(
+    args: argparse.Namespace,
+) -> tuple[None, Callable[[], InferenceEngine], str, str]:
+    """A real model, fed frames the browser captures - no camera on the host."""
+    if (
+        getattr(args, "image", None)
+        or getattr(args, "ffmpeg_camera", None) is not None
+        or getattr(args, "camera", None) is not None
+    ):
+        raise ValueError(
+            "--browser-camera takes frames from the browser; drop "
+            "--camera, --ffmpeg-camera and --image"
+        )
+    if args.engine == "simulated":
+        raise ValueError(
+            "--browser-camera needs a real model - add --engine ollama "
+            "(any machine) or --engine geniex (Snapdragon NPU)"
+        )
+    inference = _build_inference(args)
+    return None, _constant_factory(inference), "browser camera", inference.name
 
 
 def _describe_source(args: argparse.Namespace) -> str:

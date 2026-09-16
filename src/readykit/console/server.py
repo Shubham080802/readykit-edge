@@ -10,6 +10,7 @@ Visual language: DESIGN.md at the repo root.
 
 from __future__ import annotations
 
+import hashlib
 import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -64,6 +65,24 @@ class _SharedCamera(FrameSource):
         self._source.close()
 
 
+MAX_POSTED_FRAME_BYTES = 10 * 1024 * 1024
+
+_IMAGE_SIGNATURES = (b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n")
+
+
+class _PostedFrame(FrameSource):
+    """One frame the browser captured and sent, for exactly one inspection."""
+
+    def __init__(self, image: bytes) -> None:
+        self._image = image
+
+    def read(self) -> Frame:
+        return Frame(
+            image=self._image,
+            digest=hashlib.blake2b(self._image, digest_size=8).hexdigest(),
+        )
+
+
 def _jpeg(frame: Frame) -> bytes | None:
     """A frame as JPEG bytes for the browser, or None if it has no picture.
 
@@ -109,6 +128,7 @@ def create_app(
     link: HostLink | None = None,
     source_label: str = "",
     engine_label: str = "",
+    browser_camera: bool = False,
 ) -> Any:
     """Build the FastAPI app.
 
@@ -121,11 +141,12 @@ def create_app(
     one that returns the same camera rather than opening the device again every
     time somebody presses the button.
     """
-    live = source_factory is not None or engine_factory is not None
+    live = source_factory is not None or engine_factory is not None or browser_camera
     camera = _SharedCamera(source_factory()) if source_factory is not None else None
     try:
-        from fastapi import FastAPI, HTTPException
+        from fastapi import FastAPI, HTTPException, Request
         from fastapi.responses import FileResponse, JSONResponse, Response
+        from starlette.concurrency import run_in_threadpool
     except ImportError as exc:  # pragma: no cover - depends on console extras
         raise RuntimeError(
             "FastAPI is not installed. Install the console extras: "
@@ -139,8 +160,14 @@ def create_app(
 
     app = FastAPI(title="ReadyKit Edge", docs_url=None, redoc_url=None)
 
-    def build_engine(scene: str) -> InspectionEngine:
-        source: FrameSource = camera if camera is not None else ScriptedSource(scene)
+    def build_engine(scene: str, posted: FrameSource | None = None) -> InspectionEngine:
+        source: FrameSource = (
+            posted
+            if posted is not None
+            else camera
+            if camera is not None
+            else ScriptedSource(scene)
+        )
         engine: InferenceEngine = (
             engine_factory() if engine_factory else SimulatedEngine(seed=None)
         )
@@ -193,6 +220,7 @@ def create_app(
         """
         return {
             "live": live,
+            "browser_camera": browser_camera,
             "source": source_label or "scripted scenes",
             "engine": engine_label or "simulated model",
         }
@@ -261,16 +289,64 @@ def create_app(
                     status_code=400, detail="scene must be a string"
                 )
 
+        if browser_camera:
+            raise HTTPException(
+                status_code=400,
+                detail="this console inspects frames from the browser camera; "
+                "POST the captured image to /api/inspect-frame",
+            )
+        return JSONResponse(run_inspection(scene))
+
+    async def inspect_frame(request: Request) -> Any:
+        """Inspect one frame the page captured from the browser's camera.
+
+        Only on a console started with `--browser-camera`. The browser, which
+        already holds camera permission, opens the camera, so the host needs
+        none - but a page that uploads frames can be handed any picture, so
+        this is for rehearsal, never for a latch guarding a real kit.
+        """
+        if not browser_camera:
+            raise HTTPException(
+                status_code=404, detail="this console does not take posted frames"
+            )
+        image = await request.body()
+        if not image:
+            raise HTTPException(status_code=400, detail="no image was sent")
+        if len(image) > MAX_POSTED_FRAME_BYTES:
+            raise HTTPException(status_code=413, detail="image is too large")
+        if not image.startswith(_IMAGE_SIGNATURES):
+            raise HTTPException(status_code=415, detail="send a JPEG or PNG image")
+        # Inference takes tens of seconds; keep it off the event loop so the
+        # page can still poll latch state while the model works.
+        payload = await run_in_threadpool(
+            run_inspection, state.scene, _PostedFrame(image)
+        )
+        return JSONResponse(payload)
+
+    # Registered by hand, not with the decorator: this module postpones
+    # annotations, and `Request` is only imported inside this function, so
+    # FastAPI would read `request` as a missing query parameter and answer
+    # every frame with 422.
+    inspect_frame.__annotations__["request"] = Request
+    app.add_api_route("/api/inspect-frame", inspect_frame, methods=["POST"])
+
+    def run_inspection(scene: str, posted: _PostedFrame | None = None) -> dict[str, Any]:
         with state.lock:
             state.scene = scene
-            engine = build_engine(scene)
+            engine = build_engine(scene, posted)
             outcome = engine.run_once()
             state.log.append(outcome.record)
 
             # Only keep the picture if it is provably the frame this record is
             # about. A stale frame beside a fresh verdict would label one
             # picture with the findings from another.
-            judged = camera.inspected if camera is not None else None
+            judged = (
+                posted.read()
+                if posted is not None
+                else camera.inspected
+                if camera is not None
+                else None
+            )
             state.inspected_jpeg = (
                 _jpeg(judged)
                 if judged is not None
@@ -280,7 +356,7 @@ def create_app(
 
             payload = _serialise(outcome, manifest)
             state.last = payload
-            return JSONResponse(payload)
+            return payload
 
     @app.get("/api/state")
     def get_state() -> Any:

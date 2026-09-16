@@ -279,3 +279,18 @@ class TestTheConsoleWiring:
             ["console", "--manifest", KIT, "--image", "/long/path/to/tray.jpg"]
         )
         assert _describe_source(one) == "still image tray.jpg"
+
+    def test_browser_camera_needs_a_real_model(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert run("console", "--manifest", KIT, "--browser-camera") == 1
+        assert "needs a real model" in capsys.readouterr().err
+
+    def test_browser_camera_does_not_mix_with_a_host_camera(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert run(
+            "console", "--manifest", KIT, "--browser-camera",
+            "--camera", "0", "--engine", "ollama",
+        ) == 1
+        assert "drop --camera" in capsys.readouterr().err
