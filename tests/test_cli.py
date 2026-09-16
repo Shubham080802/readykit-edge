@@ -24,7 +24,12 @@ from pathlib import Path
 
 import pytest
 
-from readykit.cli import main
+from readykit.cli import (
+    _build_parser,
+    _console_input,
+    _describe_source,
+    main,
+)
 
 REPO = Path(__file__).resolve().parent.parent
 KIT = str(REPO / "manifests" / "trauma-kit-a.json")
@@ -223,3 +228,54 @@ class TestAudit:
         log = self.make_log(tmp_path, ["complete", "missing-shears"])
         assert run("records", "--log", str(log)) == 0
         assert "pass" in capsys.readouterr().out.lower()
+
+
+class TestTheConsoleWiring:
+    """`readykit console` had no way to look at anything real. These cover the
+    argument wiring, which is the part someone actually types - the console's
+    own behaviour once wired is in tests/test_console.py.
+    """
+
+    def test_a_camera_without_a_real_model_is_refused(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The simulated engine answers from a scene name and never looks at
+        the frame. Refused up front, not one button press later."""
+        assert run("console", "--manifest", KIT, "--camera", "0") == 1
+        assert "a real camera needs a real model" in capsys.readouterr().err
+
+    def test_a_real_model_without_frames_is_refused(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Already the rule for `inspect`; the console must not be the one
+        door where a real model gets handed a scene name."""
+        assert run("console", "--manifest", KIT, "--engine", "ollama") == 1
+        assert "needs real frames" in capsys.readouterr().err
+
+    def test_the_scripted_default_still_needs_nothing(self) -> None:
+        """A bare `console` must keep working with no camera and no model, or
+        every existing demo breaks. Parsed and wired, not served."""
+        args = _build_parser().parse_args(["console", "--manifest", KIT])
+        assert _console_input(args) == (None, None, "", "")
+
+    def test_describing_the_source_names_the_device(self) -> None:
+        parser = _build_parser()
+        camera = parser.parse_args(
+            ["console", "--manifest", KIT, "--camera", "2"]
+        )
+        assert _describe_source(camera) == "camera 2 via OpenCV"
+
+        ffmpeg = parser.parse_args(
+            ["console", "--manifest", KIT, "--ffmpeg-camera", "0"]
+        )
+        assert _describe_source(ffmpeg) == "camera 0 via ffmpeg"
+
+        images = parser.parse_args(
+            ["console", "--manifest", KIT, "--image", "a.jpg", "b.jpg"]
+        )
+        assert _describe_source(images) == "2 still images"
+
+        one = parser.parse_args(
+            ["console", "--manifest", KIT, "--image", "/long/path/to/tray.jpg"]
+        )
+        assert _describe_source(one) == "still image tray.jpg"

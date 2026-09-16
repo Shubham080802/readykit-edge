@@ -12,7 +12,9 @@ import argparse
 import os
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import TypeVar
 
 from .bridge import open_link
 from .bridge.base import HostLink, LinkError
@@ -31,6 +33,8 @@ from .inference.base import InferenceEngine, InferenceError
 from .inference.simulated import SimulatedEngine
 from .naive import Divergence
 from .recorder import ChainStatus, InspectionLog
+
+_T = TypeVar("_T")
 
 
 def _windows_vt_enabled() -> bool:
@@ -167,7 +171,53 @@ def _build_parser() -> argparse.ArgumentParser:
     console.add_argument(
         "--log", type=Path, default=Path("records/inspections.jsonl")
     )
-    console.set_defaults(handler=_cmd_console)
+    # Real input and a real model. Without these the console can only ever
+    # show scripted scenes, which is a rehearsal of the product rather than
+    # the product. `--port` is already the HTTP port here, so the serial
+    # device keeps the `--serial-port` spelling above.
+    console.add_argument(
+        "--camera", type=int, help="camera index via OpenCV (real capture)"
+    )
+    console.add_argument(
+        "--ffmpeg-camera",
+        metavar="DEVICE",
+        help=(
+            "camera via ffmpeg - an index on macOS/Linux, a device name on "
+            "Windows. Use this on Snapdragon, where OpenCV has no ARM64 wheel"
+        ),
+    )
+    console.add_argument(
+        "--image",
+        type=Path,
+        nargs="+",
+        metavar="PATH",
+        help="inspect still images from disk instead of a camera",
+    )
+    console.add_argument(
+        "--engine",
+        default="simulated",
+        choices=("simulated", "geniex", "ollama"),
+        help=(
+            "simulated runs anywhere off scripted scenes; geniex is the "
+            "Snapdragon NPU; ollama is a real model on any machine"
+        ),
+    )
+    console.add_argument(
+        "--model",
+        help="GenieX or Ollama model id, e.g. qualcomm/Qwen3-VL-4B-Instruct",
+    )
+    console.add_argument(
+        "--device",
+        default="auto",
+        help="GenieX device_map: auto, or <runtime>:<compute_unit>",
+    )
+    console.add_argument(
+        "--require-npu",
+        action="store_true",
+        help="refuse to run unless the NPU can be shown to be in use",
+    )
+    # `_build_source` reads args.scene when nothing real was asked for.
+    console.set_defaults(handler=_cmd_console, scene="complete")
 
     compare_cmd = sub.add_parser(
         "compare", help="replay every scene against the original blueprint's logic"
@@ -451,13 +501,100 @@ def _cmd_console(args: argparse.Namespace) -> int:
     else:
         link = open_link("loopback")
         actuator = "simulated node"
-    app = create_app(manifest=manifest, log_path=args.log, link=link)
+
+    source_factory, engine_factory, source_label, engine_label = _console_input(args)
+
+    app = create_app(
+        manifest=manifest,
+        log_path=args.log,
+        link=link,
+        source_factory=source_factory,
+        engine_factory=engine_factory,
+        source_label=source_label,
+        engine_label=engine_label,
+    )
 
     print(f"\n  {BOLD}ReadyKit Edge console{RESET}  {DIM}{manifest.name}{RESET}")
     print(f"  {DIM}http://{args.host}:{args.port}{RESET}")
+    print(f"  {DIM}input:    {source_label or 'scripted scenes'}{RESET}")
+    print(f"  {DIM}model:    {engine_label or 'simulated'}{RESET}")
     print(f"  {DIM}actuator: {actuator}{RESET}\n")
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
     return 0
+
+
+def _constant_factory(value: _T) -> Callable[[], _T]:
+    """A factory that hands back the same object every time.
+
+    `create_app` calls its factories once per inspection. A camera has to be
+    opened once and shared: reopening the device on every button press means
+    the console competing with itself for a handle it already holds, and on
+    some drivers the second open simply fails.
+    """
+
+    def factory() -> _T:
+        return value
+
+    return factory
+
+
+def _console_input(
+    args: argparse.Namespace,
+) -> tuple[Callable[[], FrameSource] | None, Callable[[], InferenceEngine] | None,
+           str, str]:
+    """Wire real frames and a real model into the console, or neither.
+
+    Returns `(None, None, "", "")` for the scripted default, which is what
+    `create_app` reads as "not live" - so the page keeps its scene picker.
+    """
+    wants_frames = bool(
+        getattr(args, "image", None)
+        or getattr(args, "ffmpeg_camera", None) is not None
+        or getattr(args, "camera", None) is not None
+    )
+    wants_model = args.engine != "simulated"
+
+    if not wants_frames and not wants_model:
+        return None, None, "", ""
+
+    if wants_frames and not wants_model:
+        # The simulated engine reads a scene name, not pixels, and rejects a
+        # real frame at inference time. Refuse here instead: a console that
+        # errors on every press has already wasted the operator's time, and
+        # the message arrives where they can still act on it.
+        raise ValueError(
+            "a real camera needs a real model - add --engine ollama "
+            "(any machine) or --engine geniex (Snapdragon NPU). The simulated "
+            "engine answers from a scene name and never looks at the frame"
+        )
+
+    # Raises when a real engine has been given no real frames to look at.
+    source = _build_source(args)
+    inference = _build_inference(args)
+    return (
+        _constant_factory(source),
+        _constant_factory(inference),
+        _describe_source(args),
+        inference.name,
+    )
+
+
+def _describe_source(args: argparse.Namespace) -> str:
+    images = getattr(args, "image", None)
+    if images:
+        paths = list(images)
+        if len(paths) == 1:
+            # The filename, not the path. This lands in a pill on one control
+            # row, and an absolute path there wraps the row onto three lines.
+            return f"still image {Path(paths[0]).name}"
+        return f"{len(paths)} still images"
+    ffmpeg_device = getattr(args, "ffmpeg_camera", None)
+    if ffmpeg_device is not None:
+        return f"camera {ffmpeg_device} via ffmpeg"
+    camera = getattr(args, "camera", None)
+    if camera is not None:
+        return f"camera {camera} via OpenCV"
+    return ""
 
 
 def _cmd_scenes(args: argparse.Namespace) -> int:

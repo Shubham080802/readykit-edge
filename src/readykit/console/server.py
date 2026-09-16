@@ -52,12 +52,21 @@ def create_app(
     source_factory: Any = None,
     engine_factory: Any = None,
     link: HostLink | None = None,
+    source_label: str = "",
+    engine_label: str = "",
 ) -> Any:
     """Build the FastAPI app.
 
     FastAPI is imported here rather than at module load so the core package
     installs without the console extras.
+
+    Pass `source_factory` to inspect real frames and `engine_factory` to run a
+    real model; either one makes the console *live*, and the labels are what it
+    says it is looking at. A factory is called once per inspection, so hand in
+    one that returns the same camera rather than opening the device again every
+    time somebody presses the button.
     """
+    live = source_factory is not None or engine_factory is not None
     try:
         from fastapi import FastAPI, HTTPException
         from fastapi.responses import FileResponse, JSONResponse
@@ -119,8 +128,27 @@ def create_app(
             ],
         }
 
+    @app.get("/api/source")
+    def get_source() -> Any:
+        """What this console is actually looking at.
+
+        The page asks before it draws the controls. A scene picker in front of
+        a live camera would be the same lie as a simulated latch beside a real
+        one: the operator reads the dropdown, believes the input is scripted,
+        and trusts the verdict less than it deserves - or more.
+        """
+        return {
+            "live": live,
+            "source": source_label or "scripted scenes",
+            "engine": engine_label or "simulated model",
+        }
+
     @app.get("/api/scenes")
     def get_scenes() -> Any:
+        # A live console has no scenes to offer. Returning the scripted list
+        # anyway would invite a caller to pick one that cannot be honoured.
+        if live:
+            return {"scenes": []}
         builtin = [
             {"name": name, "description": description}
             for name, description in sorted(SimulatedEngine.scenes().items())
@@ -136,9 +164,26 @@ def create_app(
 
     @app.post("/api/inspect")
     def inspect(body: dict[str, Any] | None = None) -> Any:
-        scene = (body or {}).get("scene", state.scene)
-        if not isinstance(scene, str) or not scene:
-            raise HTTPException(status_code=400, detail="scene must be a string")
+        requested = (body or {}).get("scene")
+        if live:
+            # Refused rather than ignored. Accepting a scene and then looking
+            # at the camera instead would report a verdict about one thing
+            # under the name of another.
+            if requested is not None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"this console inspects {source_label or 'real frames'}; "
+                        "a scene cannot be selected"
+                    ),
+                )
+            scene = state.scene
+        else:
+            scene = requested if requested is not None else state.scene
+            if not isinstance(scene, str) or not scene:
+                raise HTTPException(
+                    status_code=400, detail="scene must be a string"
+                )
 
         with state.lock:
             state.scene = scene
@@ -164,6 +209,7 @@ def create_app(
             return {
                 "last": state.last,
                 "scene": state.scene,
+                "live": live,
                 "telemetry": _telemetry(state.node),
                 "tally": state.log.tally(),
                 "blueprint_tally": _blueprint_tally(state.log),
