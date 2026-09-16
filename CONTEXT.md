@@ -46,11 +46,17 @@ Pass may release the Latch.
 _Avoid_: Result, status, decision, outcome
 
 **Indeterminate**:
-The Verdict when the system could not establish compliance - the frame was
-occluded, inference errored, confidence fell below the Manifest's floor, or the
-model's reply could not be parsed. Distinct from Fail, which is a positive
-finding that the Kit is non-compliant. Both keep the Latch engaged; only
-Indeterminate means "ask again", and it is never a reason to unlock.
+The Verdict when the system could not establish compliance for a *critical*
+Required Item - the frame was occluded, inference errored, confidence fell
+below the Manifest's floor, or the model's reply could not be parsed. Distinct
+from Fail, which is a positive finding that the Kit is non-compliant. Both keep
+the Latch engaged; only Indeterminate means "ask again", and it is never a
+reason to unlock.
+
+Unestablished evidence about an *advisory* item is not Indeterminate. The
+Manifest has already said the Kit is serviceable without that item, so doubt
+about it cannot outrank certainty about it: it is recorded as an advisory and
+the Kit's fate turns on the critical items.
 _Avoid_: Unknown, error, null result, inconclusive
 
 **Expiry Check**:

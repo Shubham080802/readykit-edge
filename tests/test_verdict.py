@@ -152,6 +152,99 @@ class TestSeverity:
         assert result.missing == ()
 
 
+class TestDoubtAboutAnAdvisoryItemDoesNotHoldTheLatch:
+    """An advisory item cannot be worth more unseen than it is worth gone.
+
+    The Manifest says this kit is serviceable without a spare fuse - a
+    confident ABSENT passes it. So an occluded look at that same fuse must
+    not hold the latch, or doubt about something that does not matter ends
+    up stricter than certainty about it, and every inspection of a kit with
+    one hard-to-see nice-to-have is INDETERMINATE forever.
+
+    The failure this prevents is not a fail-open. It is an inspection station
+    that cries wolf, which operators fix by propping it open.
+    """
+
+    TOOLBOX = Manifest(
+        manifest_id="tb-2",
+        name="Toolbox",
+        items=(
+            RequiredItem(key="multimeter", label="Multimeter"),
+            RequiredItem(
+                key="spare_fuse",
+                label="Spare Fuses",
+                severity=Severity.ADVISORY,
+                quantity=4,
+                expiry_checked=True,
+            ),
+        ),
+        confidence_floor=0.6,
+    )
+
+    def test_an_unreadable_advisory_item_still_passes(self) -> None:
+        sightings = [
+            found("multimeter"),
+            Sighting("spare_fuse", Presence.UNREADABLE, 0.9, "behind the lid"),
+        ]
+        result = resolve_verdict(self.TOOLBOX, sightings)
+        assert result.verdict is Verdict.PASS
+        assert result.unresolved == ()
+        assert result.advisories == ("spare_fuse",)
+
+    def test_an_advisory_item_the_model_never_mentioned_still_passes(self) -> None:
+        result = resolve_verdict(self.TOOLBOX, [found("multimeter")])
+        assert result.verdict is Verdict.PASS
+        assert result.advisories == ("spare_fuse",)
+
+    def test_a_low_confidence_advisory_reading_still_passes(self) -> None:
+        sightings = [found("multimeter"), found("spare_fuse", 0.2)]
+        result = resolve_verdict(self.TOOLBOX, sightings)
+        assert result.verdict is Verdict.PASS
+        assert result.advisories == ("spare_fuse",)
+
+    def test_an_uncounted_advisory_item_still_passes(self) -> None:
+        """Counting four small identical fuses is the model's weakest axis,
+        and it is the one item on this manifest that does not matter."""
+        sightings = [
+            found("multimeter"),
+            Sighting("spare_fuse", Presence.FOUND, 0.95, count=None, expiry=None),
+        ]
+        result = resolve_verdict(self.TOOLBOX, sightings)
+        assert result.verdict is Verdict.PASS
+        assert result.advisories == ("spare_fuse",)
+
+    def test_an_advisory_item_is_named_once_however_many_findings_it_has(
+        self,
+    ) -> None:
+        """Present, but neither counted nor dated - two findings, one item."""
+        sightings = [
+            found("multimeter"),
+            Sighting("spare_fuse", Presence.FOUND, 0.95),
+        ]
+        result = resolve_verdict(self.TOOLBOX, sightings)
+        assert result.advisories == ("spare_fuse",)
+
+    def test_a_pass_does_not_claim_an_unseen_advisory_item_was_serviceable(
+        self,
+    ) -> None:
+        """"All 2 required items present and serviceable" would be a false
+        statement on the record when one of the two was never seen."""
+        result = resolve_verdict(self.TOOLBOX, [found("multimeter")])
+        assert result.reason == (
+            "All 1 critical items present and serviceable; advisory: Spare Fuses"
+        )
+
+    def test_doubt_about_a_critical_item_still_holds_the_latch(self) -> None:
+        """The rule bends for advisory items only."""
+        sightings = [
+            Sighting("multimeter", Presence.UNREADABLE, 0.9),
+            found("spare_fuse", 0.95),
+        ]
+        result = resolve_verdict(self.TOOLBOX, sightings)
+        assert result.verdict is Verdict.INDETERMINATE
+        assert result.unresolved == ("multimeter",)
+
+
 class TestAdversarialReplies:
     def test_duplicate_sightings_keep_the_least_favourable(self) -> None:
         sightings = [

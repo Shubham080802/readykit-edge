@@ -41,7 +41,14 @@ class Severity(StrEnum):
     """Absence or damage disqualifies the whole Kit."""
 
     ADVISORY = "advisory"
-    """Absence is recorded but does not by itself fail the Kit."""
+    """Absence is recorded but does not by itself fail the Kit.
+
+    Nor does it hold the Latch when the model could not see the item at all.
+    An item the Manifest has already said it can live without cannot be worth
+    more unseen than it is worth gone: if a positive, confident ABSENT passes
+    the Kit, an occluded look at the same item must not block it. Unestablished
+    advisory evidence is recorded as an advisory, never as unresolved.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -330,13 +337,28 @@ def resolve_verdict(
     """Decide a Verdict for one Kit against one Manifest.
 
     The whole safety posture of ReadyKit Edge is this function, and it rests on
-    one rule: **absence of evidence is not evidence of compliance.** A Required
-    Item the model did not speak to, spoke about unreadably, or spoke about
-    below the Manifest's Confidence Floor is UNRESOLVED - and any unresolved
-    item yields INDETERMINATE, which keeps the Latch engaged.
+    one rule: **absence of evidence is not evidence of compliance.** A critical
+    Required Item the model did not speak to, spoke about unreadably, or spoke
+    about below the Manifest's Confidence Floor is UNRESOLVED - and any
+    unresolved item yields INDETERMINATE, which keeps the Latch engaged.
 
     PASS therefore requires a positive, confident FOUND for every critical item.
     It is never the fallthrough branch.
+
+    An *advisory* item is the one place that rule stops, because there it
+    stops making sense. The Manifest has already said the Kit is serviceable
+    without the item - a confident ABSENT passes - so treating an occluded
+    look at the same item as grounds to hold the Latch makes doubt about
+    something that does not matter stricter than certainty about it. Every
+    advisory finding, established or not, is recorded as an advisory, and the
+    Verdict turns only on the critical items.
+
+    This is not leniency. An advisory item cannot fail a Kit either; what it
+    can do is tell whoever restocks the Kit what was seen. The alternative is
+    worse than lenient: one nice-to-have that the camera cannot quite make out
+    - a triage marker under the lid, four spare fuses too small to count -
+    holds an otherwise-compliant Kit at INDETERMINATE forever, and an
+    inspection station that cries wolf gets propped open.
 
     Expiry obeys the same rule rather than a special case of its own. For an
     item the Manifest expiry-checks, a date that was never read is unresolved -
@@ -371,17 +393,17 @@ def resolve_verdict(
         found = by_key.get(item.key)
 
         if found is None:
-            unresolved.append(item.key)
+            _unestablished(item, unresolved, advisories)
             continue
 
         if found.presence is Presence.UNREADABLE:
-            unresolved.append(item.key)
+            _unestablished(item, unresolved, advisories)
             continue
 
         if found.confidence < manifest.confidence_floor:
             # Low-confidence ABSENT is not a failure - it is a bad look at the
             # kit. Ask again rather than accusing the operator.
-            unresolved.append(item.key)
+            _unestablished(item, unresolved, advisories)
             continue
 
         if found.presence is Presence.FOUND:
@@ -399,6 +421,11 @@ def resolve_verdict(
             bucket.append(item.key)
         else:
             advisories.append(item.key)
+
+    # One advisory item can collect more than one finding - an unread count
+    # and an unread date on the same packet - and the record should name it
+    # once.
+    advisories = _deduplicate(advisories)
 
     if unresolved:
         return Resolution(
@@ -425,12 +452,19 @@ def resolve_verdict(
             short=tuple(short),
         )
 
-    reason = f"All {len(manifest.items)} required items present and serviceable"
+    # Counts the critical items, not every item: an advisory item nobody
+    # established cannot be claimed as "present and serviceable", and a PASS
+    # that overstates what was seen is the same failure as a fail-open in
+    # slower motion.
+    critical = sum(1 for i in manifest.items if i.severity is Severity.CRITICAL)
+    reason = f"All {critical} critical items present and serviceable"
     notes = []
     if expiring_soon:
         notes.append(f"{len(expiring_soon)} expiring soon")
     if advisories:
-        notes.append(f"{len(advisories)} advisory item(s) noted")
+        notes.append(
+            "advisory: " + ", ".join(_label(manifest, k) for k in advisories)
+        )
     if notes:
         reason += "; " + ", ".join(notes)
     return Resolution(
@@ -439,6 +473,25 @@ def resolve_verdict(
         advisories=tuple(advisories),
         expiring_soon=tuple(expiring_soon),
     )
+
+
+def _unestablished(
+    item: RequiredItem, unresolved: list[str], advisories: list[str]
+) -> None:
+    """Record that nothing was established about one Required Item.
+
+    For a critical item that is UNRESOLVED, and any unresolved item yields
+    INDETERMINATE. For an advisory item it is an advisory: the Manifest has
+    already said the Kit is serviceable without it, so an unseen one cannot
+    weigh more than a confidently absent one.
+    """
+    bucket = unresolved if item.severity is Severity.CRITICAL else advisories
+    bucket.append(item.key)
+
+
+def _deduplicate(keys: list[str]) -> list[str]:
+    """Drop repeats, keeping the first position of each key."""
+    return list(dict.fromkeys(keys))
 
 
 def _judge_count(
@@ -456,7 +509,7 @@ def _judge_count(
     runs out halfway through.
     """
     if sighting.count is None:
-        unresolved.append(item.key)
+        _unestablished(item, unresolved, advisories)
         return
 
     if sighting.count < item.quantity:
@@ -480,7 +533,7 @@ def _judge_expiry(
     same rule as everywhere else, applied to a different kind of evidence.
     """
     if sighting.expiry is None:
-        unresolved.append(item.key)
+        _unestablished(item, unresolved, advisories)
         return
 
     if sighting.expiry < today:
