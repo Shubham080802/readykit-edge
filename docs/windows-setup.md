@@ -32,6 +32,37 @@ under emulation. Uninstall it and install the ARM64 one, because an emulated
 interpreter cannot load the native GenieX runtime later — and you will not find
 that out until stage 4.
 
+**If `winget` is not available, or the ARM64 MSI installer fails with `Error
+0x80070003` / `BA aborted verify of payload`** (a Burn-bootstrapper payload
+verification failure seen on some locked-down machines, unrelated to a
+corrupted download - re-downloading and re-verifying the hash will not fix
+it), skip the installer entirely and use the embeddable build instead:
+
+```powershell
+Invoke-WebRequest https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-arm64.zip -OutFile py.zip
+Expand-Archive py.zip C:\Python312-arm64
+(Get-Content C:\Python312-arm64\python312._pth) -replace '#import site', 'import site' |
+    Set-Content C:\Python312-arm64\python312._pth
+Invoke-WebRequest https://bootstrap.pypa.io/get-pip.py -OutFile get-pip.py
+C:\Python312-arm64\python.exe get-pip.py
+```
+
+This has no `venv` module - there is no per-project virtual environment, this
+*is* the environment - and pip's build isolation does not work in it (the
+`._pth` file hardcodes `sys.path` and ignores `PYTHONPATH`, which is what
+isolation relies on to inject its temp environment). Any package that needs to
+build from source - `geniex` always does, see stage 3b - needs
+`--no-build-isolation` with `setuptools`, `wheel`, and `tomli` pre-installed:
+
+```powershell
+C:\Python312-arm64\python.exe -m pip install hatchling editables setuptools wheel tomli
+C:\Python312-arm64\python.exe -m pip install -e ".[dev,console]" --no-build-isolation
+```
+
+Add `C:\Python312-arm64` and `C:\Python312-arm64\Scripts` to `PATH` so
+`readykit`, `pytest`, etc. resolve directly instead of needing the full path
+every time.
+
 ---
 
 ## Stage 2 — The project, in simulation
@@ -138,7 +169,19 @@ geniex --version
 ```
 
 PyPI ships `geniex` as a source archive rather than a wheel, so this step may
-compile. If it fails here, that is a question for the Qualcomm engineers on
+compile. If it fails with `BackendUnavailable: Cannot import '_geniex_backend'`
+(seen even with a normal `venv`, not just the embeddable fallback above), it
+means build isolation could not reach the sdist's own in-tree backend. Fix it
+by pre-installing the backend's own build dependencies and disabling
+isolation for this one package:
+
+```powershell
+.venv\Scripts\pip install --no-build-isolation setuptools wheel tomli
+.venv\Scripts\pip install --no-build-isolation geniex
+.venv\Scripts\python -c "import geniex; print('ok')"
+```
+
+If it *still* fails here, that is a question for the Qualcomm engineers on
 site, and a specific one: *the CLI installs and runs, but the Python binding
 will not build.*
 
@@ -163,9 +206,14 @@ wrong runtime beats a broken one on the right runtime.
 ## Stage 4 — The model
 
 ```powershell
-geniex pull ai-hub-models/Qwen3-VL-4B-Instruct
-geniex infer ai-hub-models/Qwen3-VL-4B-Instruct
+geniex pull qualcomm/Qwen3-VL-4B-Instruct
+geniex infer qualcomm/Qwen3-VL-4B-Instruct
 ```
+
+`geniex list` is the source of truth for the repo id actually cached on this
+machine - the `qualcomm/` namespace is what the CLI resolves to today, not
+`ai-hub-models/`, despite what older GenieX docs may show. Check `geniex
+list` before assuming a repo id is wrong.
 
 Note how long the pull takes and how much disk it uses — you will want that
 number when planning the demo.
@@ -184,12 +232,12 @@ reasons it is the right default here:
   a reasoning-heavy one. A larger model's extra capacity is not spent on
   anything this asks of it.
 
-`ai-hub-models/Qwen3-VL-8B-Instruct` and the Qwen2.5-VL family are the steps up
+`qualcomm/Qwen3-VL-8B-Instruct` and the Qwen2.5-VL family are the steps up
 if a particular kit turns out to need one. Measure before you switch:
 
 ```powershell
 .venv\Scripts\readykit bench --manifest manifests\trauma-kit-a.json `
-  --engine geniex --model ai-hub-models/Qwen3-VL-4B-Instruct --require-npu --runs 20
+  --engine geniex --model qualcomm/Qwen3-VL-4B-Instruct --require-npu --runs 20
 ```
 
 The `infer` step is the real test. Give it an image and ask what is in it. **If
@@ -278,9 +326,35 @@ on Windows it appears as `COMn`. Then:
   --scene complete --link serial --port COM4
 ```
 
-Flash `firmware\mcu_actuator\mcu_actuator.ino` to the **STM32U585 core** with
-the Arduino IDE, and work through the
-[bring-up checklist](deployment.md#bring-up-checklist).
+Flash `firmware\mcu_actuator\mcu_actuator.ino` to the **STM32U585 core**.
+`arduino-cli` is simpler than the Arduino IDE here because the board's real
+FQBN is `arduino:zephyr:unoq` - **not** `arduino:stm32:unoq`, which does not
+exist for this board - and that core is only in Arduino's staging package
+index today:
+
+```powershell
+arduino-cli config init
+arduino-cli core update-index --additional-urls https://downloads.arduino.cc/packages/package_staging_index.json
+arduino-cli core install arduino:zephyr --additional-urls https://downloads.arduino.cc/packages/package_staging_index.json
+arduino-cli lib install Arduino_RouterBridge
+arduino-cli board list
+```
+
+`board list` should show the board on a `COMn` port with FQBN
+`arduino:zephyr:unoq`. If compiling fails with `Please install the
+Arduino_RouterBridge library`, the `lib install` step above was skipped or
+failed silently - this board's `Serial` is implemented over an RPC bridge to
+the Linux side, not a raw UART, and that library is what provides it. Then:
+
+```powershell
+arduino-cli compile --upload -p COMn -b arduino:zephyr:unoq firmware\mcu_actuator
+```
+
+This drives the board over USB via `adb` and SWD under the hood (bundled with
+the core as the `remoteocd` tool) - no separate ST-Link or debug probe needed.
+A verify failure on the very first flash of a fresh board is a known flake of
+the bit-banged SWD link; retrying the same command is usually enough. Then
+work through the [bring-up checklist](deployment.md#bring-up-checklist).
 
 ---
 
@@ -288,7 +362,7 @@ the Arduino IDE, and work through the
 
 ```powershell
 .venv\Scripts\readykit inspect --manifest manifests\trauma-kit-a.json `
-  --engine geniex --model ai-hub-models/Qwen3-VL-4B-Instruct --device auto `
+  --engine geniex --model qualcomm/Qwen3-VL-4B-Instruct --device auto `
   --camera 0 --link serial --port COM4
 ```
 

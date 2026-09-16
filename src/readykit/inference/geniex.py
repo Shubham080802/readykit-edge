@@ -5,7 +5,7 @@ This is the field path, written against the documented GenieX Python API:
     from geniex import AutoModelForCausalLM
 
     model = AutoModelForCausalLM.from_pretrained(
-        "ai-hub-models/Qwen3-VL-4B-Instruct", device_map="auto"
+        "qualcomm/Qwen3-VL-4B-Instruct", device_map="auto"
     )                                   # -> GenieXVLM for a multimodal model
     prompt = model.tokenizer.apply_chat_template(messages, add_generation_prompt=True)
     reply  = model.generate(prompt, images=["/path/to/frame.jpg"], stream=False)
@@ -16,7 +16,7 @@ Three things about that API drive the shape of this module:
 * **A model is a repo id, not a file.** GenieX pulls a GGUF from Hugging Face
   or a pre-compiled bundle from Qualcomm AI Hub. There is no `.qnn` path to
   point at, so `--model` takes something like
-  `ai-hub-models/Qwen3-VL-4B-Instruct`.
+  `qualcomm/Qwen3-VL-4B-Instruct`.
 * **Images are passed as file paths.** Not arrays, not PIL objects. A frame
   captured from the camera therefore has to be written to disk before it can
   be inspected, which this module does to a temporary file it owns and
@@ -44,7 +44,7 @@ from ..domain import Manifest
 from ..reply import ReplyParseError, build_prompt, parse_reply
 from .base import InferenceEngine, InferenceError, Observation
 
-DEFAULT_MODEL = "ai-hub-models/Qwen3-VL-4B-Instruct"
+DEFAULT_MODEL = "qualcomm/Qwen3-VL-4B-Instruct"
 """A vision-language bundle precompiled for the Hexagon NPU.
 
 4B rather than the 7B this used to point at, for three reasons that all
@@ -61,7 +61,7 @@ matter more than benchmark quality:
     spent on anything this asks for.
 
 Overridable, and nothing here depends on this particular model - only on it
-being multimodal, which is enforced at construction. `ai-hub-models/
+being multimodal, which is enforced at construction. `qualcomm/
 Qwen3-VL-8B-Instruct` and the Qwen2.5-VL family are the obvious steps up if a
 kit turns out to need one."""
 
@@ -119,7 +119,7 @@ class GenieXEngine(InferenceEngine):
         is INDETERMINATE - but it wastes an inspection, so the default is
         generous.
         """
-        # A repo id legitimately contains a slash ("ai-hub-models/..."), so
+        # A repo id legitimately contains a slash ("qualcomm/..."), so
         # only a model-file extension or an actual file on disk is a mistake.
         if str(model).endswith((".qnn", ".bin", ".onnx", ".gguf")) or Path(
             model
@@ -214,6 +214,24 @@ class GenieXEngine(InferenceEngine):
                 f"doctor` shows the NPU present and OK."
             )
 
+    def _observe_device(self, output: Any) -> None:
+        """Fill in the device from a completed generation, if still unknown.
+
+        On builds that expose nothing on the model object itself -
+        `resolve_device` returning None at construction - the only place the
+        device ever gets named is `GenerateOutput.profile.device` after a
+        real call. This only upgrades an `?unverified` name to a verified
+        one; it never runs before `--require-npu`'s check at construction, so
+        that refusal is unaffected by what a first frame later reveals.
+        """
+        if self.resolved_device is not None:
+            return
+        profile = getattr(output, "profile", None)
+        device = getattr(profile, "device", None)
+        if isinstance(device, str) and device.strip():
+            self.resolved_device = device.strip()
+            self.name = f"geniex:{self.model_id}@{self.resolved_device}"
+
     def infer(self, frame: Frame, manifest: Manifest) -> Observation:
         prompt = self._render_prompt(manifest)
 
@@ -229,13 +247,24 @@ class GenieXEngine(InferenceEngine):
             except Exception as exc:
                 raise InferenceError(f"NPU inference failed: {exc}") from exc
 
-        if not isinstance(raw, str):
-            # stream=False should return a string; if a build returns chunks,
-            # join them rather than stringifying a generator's repr.
+        # `stream=False` returns a GenerateOutput, not a bare string - `.text`
+        # is the reply; `.profile.device` is often the only place a build
+        # ever names the device it actually ran on (see _observe_device).
+        # Stringifying the whole object instead of pulling `.text` out of it
+        # would feed the parser a Python repr with escaped `\n` sequences
+        # sitting between JSON tokens, which is not valid JSON - a silent
+        # failure mode this project claims never to have.
+        if isinstance(raw, str):
+            text = raw
+        elif hasattr(raw, "text") and isinstance(raw.text, str):
+            self._observe_device(raw)
+            text = raw.text
+        else:
             try:
-                raw = "".join(raw)
+                text = "".join(raw)
             except TypeError:
-                raw = str(raw)
+                text = str(raw)
+        raw = text
 
         try:
             sightings = parse_reply(raw, manifest)
@@ -255,8 +284,23 @@ class GenieXEngine(InferenceEngine):
         Skipping the template and passing the bare string mostly works and
         occasionally does not, in ways that look like the model ignoring
         instructions rather than a formatting bug.
+
+        The content must be the multimodal part list, not a bare string. A
+        bare string renders a template with no image placeholder token in it
+        at all, so `generate(images=[...])` has nowhere to align the image
+        against the text - GenieX fails that as
+        `GenieXError(-201201): Multimodal generation failed` rather than
+        guessing where the image belongs.
         """
-        messages = [{"role": "user", "content": build_prompt(manifest)}]
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image"},
+                    {"type": "text", "text": build_prompt(manifest)},
+                ],
+            }
+        ]
         try:
             rendered = self._model.tokenizer.apply_chat_template(
                 messages, add_generation_prompt=True

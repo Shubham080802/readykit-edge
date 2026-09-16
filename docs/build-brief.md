@@ -131,9 +131,16 @@ ever seen. numpy, Pillow, pyserial, fastapi and uvicorn all have ARM64 wheels.
 from geniex import AutoModelForCausalLM
 
 model = AutoModelForCausalLM.from_pretrained(
-    "ai-hub-models/Qwen3-VL-4B-Instruct",   # repo id, NOT a file path
+    "qualcomm/Qwen3-VL-4B-Instruct",         # repo id, NOT a file path
     device_map="auto",                       # or "<runtime>:<compute_unit>"
 )                                            # -> GenieXVLM if multimodal
+messages = [{
+    "role": "user",
+    "content": [
+        {"type": "image"},                  # placeholder - the template needs
+        {"type": "text", "text": "..."},    # this to know where the image goes
+    ],
+}]
 prompt = model.tokenizer.apply_chat_template(messages, add_generation_prompt=True)
 reply  = model.generate(prompt, images=["C:/path/frame.jpg"], stream=False)
 model.close()
@@ -142,9 +149,14 @@ model.close()
 Each of these will bite if ignored:
 
 - **Models are repo ids.** There is no `.qnn` to export or compile.
-  `ai-hub-models/...` runs on QAIRT on the Hexagon NPU; a Hugging Face GGUF
+  `qualcomm/...` runs on QAIRT on the Hexagon NPU; a Hugging Face GGUF
   runs via llama.cpp.
 - **Images are file paths only.** Not arrays, not PIL objects.
+- **`content` must be the multimodal part list, not a bare string.** A bare
+  string renders a template with no image placeholder token in it at all, so
+  `generate(images=[...])` has nowhere to align the image against the text.
+  GenieX fails that as `GenieXError(-201201): Multimodal generation failed`
+  rather than guessing where the image belongs.
 - **A repo id contains a slash**, so any "is this a file path?" guard that
   tests for a path separator rejects every valid model id.
 - **Verify you got a vision model.** GenieX returns `GenieXVLM` for multimodal
@@ -158,7 +170,7 @@ Each of these will bite if ignored:
 
 ### Two models, two jobs
 
-- `ai-hub-models/Qwen3-VL-4B-Instruct` — looks at the kit. Vision only.
+- `qualcomm/Qwen3-VL-4B-Instruct` — looks at the kit. Vision only.
 - `google/gemma-4-E4B-it-qat-q4_0-gguf` — carries the spoken conversation.
 
 The second **must never see the kit and must never influence a verdict.** It

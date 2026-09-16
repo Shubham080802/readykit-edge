@@ -3,11 +3,15 @@
 Taking ReadyKit Edge from a laptop simulation to a Snapdragon X Elite host
 driving an Arduino UNO Q — on its own, or wired to a real solenoid.
 
-Everything in this document has been designed and unit-tested but **not yet
-run on the hardware**. The [bring-up checklist](#bring-up-checklist) is written
-to be worked through in one sitting the first time the boards are on the bench
-— every item on it is a behaviour the simulator already pins, so it confirms
-the hardware agrees rather than discovering the behaviour from scratch.
+This has now been run on real hardware: the firmware is flashed, the Host
+Link round-trips real `PING`/`RELEASE` commands with a real `ACK` over
+`COM4`, and a real GenieX/Qwen3-VL-4B-Instruct inference on the Hexagon NPU
+has driven a real latch release end to end. The
+[bring-up checklist](#bring-up-checklist) below is not fully worked through
+yet, though - only resting-state and the `PASS`/`INDETERMINATE` command paths
+have been confirmed; the watchdog and integrity items are still open. Every
+item on it is a behaviour the simulator already pins, so it confirms the
+hardware agrees rather than discovering the behaviour from scratch.
 
 ---
 
@@ -32,14 +36,14 @@ binary) is not how this runtime works.
 pip install geniex
 
 # Pre-compiled for the Hexagon NPU via Qualcomm AI Engine Direct
-geniex pull ai-hub-models/Qwen3-VL-4B-Instruct
+geniex pull qualcomm/Qwen3-VL-4B-Instruct
 ```
 
 That id is what `--model` takes:
 
 ```bash
 readykit inspect --engine geniex \
-  --model ai-hub-models/Qwen3-VL-4B-Instruct \
+  --model qualcomm/Qwen3-VL-4B-Instruct \
   --device auto --camera 0 --manifest manifests/trauma-kit-a.json
 ```
 
@@ -56,7 +60,7 @@ rather than documented.
 
 | Source | Runtime | Hardware |
 |---|---|---|
-| `ai-hub-models/...` | Qualcomm AI Engine Direct | Hexagon NPU only |
+| `qualcomm/...` | Qualcomm AI Engine Direct | Hexagon NPU only |
 | Hugging Face GGUF, e.g. `unsloth/...-GGUF` | llama.cpp | CPU / GPU / NPU |
 
 `--device` maps to GenieX's `device_map`: `auto` takes the first available
@@ -100,11 +104,28 @@ raise it until occluded and glare-affected frames reliably land on
 
 ## 2. Flash the firmware
 
+The board's real FQBN is **`arduino:zephyr:unoq`**, not `arduino:stm32:unoq` -
+that core does not exist for this board. It is only in Arduino's staging
+package index today, and the sketch needs the `Arduino_RouterBridge` library:
+this board's `Serial` is implemented over an RPC bridge to the Linux side, not
+a raw UART, and compiling without that library fails with `Please install the
+Arduino_RouterBridge library from the Library Manager`.
+
 ```bash
-arduino-cli core install arduino:stm32
-arduino-cli compile --fqbn arduino:stm32:unoq firmware/mcu_actuator
-arduino-cli upload  --fqbn arduino:stm32:unoq -p /dev/ttyACM0 firmware/mcu_actuator
+arduino-cli core update-index --additional-urls https://downloads.arduino.cc/packages/package_staging_index.json
+arduino-cli core install arduino:zephyr --additional-urls https://downloads.arduino.cc/packages/package_staging_index.json
+arduino-cli lib install Arduino_RouterBridge
+arduino-cli compile --upload -p COMn -b arduino:zephyr:unoq firmware/mcu_actuator
 ```
+
+(`-p COMn` on Windows; the Linux-side port such as `/dev/ttyACM0` on other
+hosts.) This drives the board over USB via `adb` and SWD under the hood -
+bundled with the core as the `remoteocd` tool - so no separate ST-Link or
+debug probe is needed, and no manual `adb`/OpenOCD invocation either; plain
+`arduino-cli compile --upload` is enough once the core and library above are
+installed. A verify failure on the very first flash of a fresh board is a
+known flake of the bit-banged SWD link this tool uses; retrying the same
+command is usually enough - it is not evidence of a bad flash.
 
 Or open `firmware/mcu_actuator/mcu_actuator.ino` in the Arduino IDE or Arduino
 App Lab, select the UNO Q board, and upload to the **STM32U585 MCU core** (not
@@ -228,7 +249,7 @@ The protocol is identical either way; only the device path changes.
 
 .venv/bin/readykit watch \
   --manifest manifests/trauma-kit-a.json \
-  --engine geniex --model ai-hub-models/Qwen3-VL-4B-Instruct \
+  --engine geniex --model qualcomm/Qwen3-VL-4B-Instruct \
   --device auto \
   --camera 0 \
   --link serial --port /dev/ttyACM0 \
@@ -269,9 +290,9 @@ simulator already pins — this confirms the hardware agrees.
 step with the most unknowns
 
 - [ ] `pip install geniex` succeeds on the Snapdragon host.
-- [ ] `geniex pull ai-hub-models/Qwen3-VL-4B-Instruct` completes. Note how
+- [ ] `geniex pull qualcomm/Qwen3-VL-4B-Instruct` completes. Note how
       long it took and how much disk it used.
-- [ ] `geniex infer ai-hub-models/Qwen3-VL-4B-Instruct` runs and answers a
+- [ ] `geniex infer qualcomm/Qwen3-VL-4B-Instruct` runs and answers a
       question about an image. If this does not work, nothing downstream will.
 - [ ] `readykit inspect --engine geniex --camera 0 --manifest ...` returns a
       verdict of any kind. A verdict of INDETERMINATE here is a success: it

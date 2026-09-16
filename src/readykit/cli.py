@@ -44,7 +44,7 @@ def _windows_vt_enabled() -> bool:
     try:
         import ctypes
 
-        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        kernel32 = ctypes.windll.kernel32
         handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
         mode = ctypes.c_uint32()
         if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
@@ -250,7 +250,7 @@ def _add_pipeline_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--model",
         help=(
-            "GenieX model repo id, e.g. ai-hub-models/Qwen3-VL-4B-Instruct. "
+            "GenieX model repo id, e.g. qualcomm/Qwen3-VL-4B-Instruct. "
             "Not a file path - GenieX pulls bundles by id"
         ),
     )
