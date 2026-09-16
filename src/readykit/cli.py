@@ -144,6 +144,18 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     console.add_argument("--port", type=int, default=8420)
     console.add_argument(
+        "--serial-port",
+        default=None,
+        metavar="COMn",
+        help=(
+            "drive a real Actuator Node instead of the simulated one, so the "
+            "latch physically moves. The node's telemetry panel empties: the "
+            "firmware answers with acknowledgements and does not report its "
+            "state, and showing a simulated latch beside a real one would be "
+            "the one lie this console must not tell"
+        ),
+    )
+    console.add_argument(
         "--log", type=Path, default=Path("records/inspections.jsonl")
     )
     console.set_defaults(handler=_cmd_console)
@@ -424,12 +436,17 @@ def _cmd_console(args: argparse.Namespace) -> int:
     from .console import create_app
 
     manifest = _load_manifest(args.manifest)
-    app = create_app(
-        manifest=manifest, log_path=args.log, link=open_link("loopback")
-    )
+    if args.serial_port:
+        link = open_link("serial", port=args.serial_port)
+        actuator = f"{args.serial_port} - the latch really moves"
+    else:
+        link = open_link("loopback")
+        actuator = "simulated node"
+    app = create_app(manifest=manifest, log_path=args.log, link=link)
 
     print(f"\n  {BOLD}ReadyKit Edge console{RESET}  {DIM}{manifest.name}{RESET}")
-    print(f"  {DIM}http://{args.host}:{args.port}{RESET}\n")
+    print(f"  {DIM}http://{args.host}:{args.port}{RESET}")
+    print(f"  {DIM}actuator: {actuator}{RESET}\n")
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
     return 0
 
