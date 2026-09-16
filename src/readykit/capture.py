@@ -329,6 +329,11 @@ def list_cameras() -> list[str]:
     """
     if shutil.which("ffmpeg") is None:
         return []
+    # Declared before the branches so the name survives platform narrowing.
+    # Checking `sys.platform` prunes the other branches outright, so on Linux -
+    # where CI type-checks - both assignments vanish and only this is left to
+    # say what `probe` is.
+    probe: list[str]
     if sys.platform == "darwin":
         probe = ["-f", "avfoundation", "-list_devices", "true", "-i", ""]
     elif sys.platform == "win32":
