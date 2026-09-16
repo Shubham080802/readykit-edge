@@ -232,6 +232,28 @@ flashing, and wiring.
 Live verdict, per-item checklist, actuator telemetry (latch, indicator,
 buzzer, link freshness, last acknowledged sequence), and the audit trail.
 
+That command serves scripted scenes. Point it at a real camera and a real
+model and it inspects what the camera sees:
+
+```bash
+.venv/bin/readykit console --manifest manifests/trauma-kit-a.json \
+  --camera 0 --engine geniex --model qualcomm/Qwen3-VL-4B-Instruct
+```
+
+```bash
+# any machine, when GenieX will not install
+.venv/bin/readykit console --manifest manifests/desk-rehearsal.json \
+  --camera 0 --engine ollama --model qwen2.5vl
+```
+
+A live console **drops the scene picker** and names its input instead. An
+operator reading a dropdown of scene names believes the input is scripted, so
+showing one in front of a live camera would report a verdict about their
+actual kit under the name of a rehearsal — the same lie as a simulated latch
+beside a real one. For the same reason `--camera` without a real model is
+refused up front rather than one button press later: the simulated engine
+answers from a scene name and never looks at the frame.
+
 It binds to loopback deliberately: this device releases a physical latch on
 command, and binding it to a routable interface would turn a local view into a
 remote actuator.

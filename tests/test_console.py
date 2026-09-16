@@ -12,7 +12,10 @@ from pathlib import Path
 import pytest
 
 from readykit.bridge import LoopbackLink, VirtualActuatorNode
+from readykit.capture import Frame
 from readykit.domain import Manifest, RequiredItem
+from readykit.inference.base import Observation
+from readykit.reply import parse_reply
 
 # importorskip only catches ImportError, and starlette raises RuntimeError
 # when httpx is absent - so both have to be handled to skip cleanly rather
@@ -52,6 +55,131 @@ def client(
         link=LoopbackLink(node),
     )
     return fastapi_testclient.TestClient(app)
+
+
+class _CountingCamera:
+    """Stands in for a camera, and remembers how often it was opened."""
+
+    opens = 0
+
+    def __init__(self) -> None:
+        type(self).opens += 1
+        self.reads = 0
+
+    def read(self) -> Frame:
+        self.reads += 1
+        return Frame(image=b"\x00pixels", digest="cafe1234", width=640, height=480)
+
+    def close(self) -> None:
+        pass
+
+
+class _FixedEngine:
+    """A real-shaped engine: it reads the frame, not a scene name."""
+
+    name = "stub-vlm"
+
+    def infer(self, frame: Frame, manifest: Manifest) -> Observation:
+        assert not isinstance(frame.image, str), "a real engine gets pixels"
+        reply = (
+            '{"kit_present":"yes","items":['
+            '{"key":"multimeter","presence":"found","confidence":0.94},'
+            '{"key":"hardhat","presence":"found","confidence":0.91}]}'
+        )
+        return Observation(
+            sightings=tuple(parse_reply(reply, manifest)), raw_reply=reply
+        )
+
+    def close(self) -> None:
+        pass
+
+
+@pytest.fixture
+def live_client(
+    tmp_path: Path, node: VirtualActuatorNode
+) -> fastapi_testclient.TestClient:
+    """A console wired to real frames and a real-shaped model."""
+    _CountingCamera.opens = 0
+    camera = _CountingCamera()
+    engine = _FixedEngine()
+    app = create_app(
+        manifest=KIT,
+        log_path=tmp_path / "inspections.jsonl",
+        link=LoopbackLink(node),
+        source_factory=lambda: camera,
+        engine_factory=lambda: engine,
+        source_label="camera 0 via OpenCV",
+        engine_label="stub-vlm",
+    )
+    return fastapi_testclient.TestClient(app)
+
+
+class TestAConsoleWiredToARealCamera:
+    """The console had no way to inspect anything real: `create_app` took
+    `source_factory` and `engine_factory`, and the CLI never passed either, so
+    the page was permanently a rehearsal.
+
+    Wiring them in makes one thing load-bearing - the page must not offer a
+    scene picker in front of a live camera. An operator who reads a dropdown
+    of scene names believes the input is scripted, and would see a verdict
+    about their actual kit under the name of a rehearsal.
+    """
+
+    def test_a_scripted_console_says_it_is_scripted(
+        self, client: fastapi_testclient.TestClient
+    ) -> None:
+        body = client.get("/api/source").json()
+        assert body["live"] is False
+        assert body["source"] == "scripted scenes"
+
+    def test_a_live_console_names_what_it_is_looking_at(
+        self, live_client: fastapi_testclient.TestClient
+    ) -> None:
+        body = live_client.get("/api/source").json()
+        assert body["live"] is True
+        assert body["source"] == "camera 0 via OpenCV"
+        assert body["engine"] == "stub-vlm"
+
+    def test_a_live_console_offers_no_scenes(
+        self, live_client: fastapi_testclient.TestClient
+    ) -> None:
+        """Nothing to pick, so nothing is listed - rather than listing scenes
+        that cannot be honoured."""
+        assert live_client.get("/api/scenes").json()["scenes"] == []
+
+    def test_a_live_console_refuses_a_scene_rather_than_ignoring_it(
+        self, live_client: fastapi_testclient.TestClient
+    ) -> None:
+        """Silently looking at the camera instead would report a verdict about
+        one thing under the name of another."""
+        response = live_client.post("/api/inspect", json={"scene": "complete"})
+        assert response.status_code == 400
+        assert "camera 0 via OpenCV" in response.json()["detail"]
+
+    def test_a_live_console_inspects_the_real_frame(
+        self, live_client: fastapi_testclient.TestClient
+    ) -> None:
+        body = live_client.post("/api/inspect", json={}).json()
+        assert body["verdict"] == "pass"
+        assert body["frame_digest"] == "cafe1234"
+
+    def test_the_camera_is_opened_once_however_many_inspections_run(
+        self, live_client: fastapi_testclient.TestClient
+    ) -> None:
+        """`create_app` calls the factory per inspection. Reopening the device
+        every time means the console competing with itself for a handle it
+        already holds, and on some drivers the second open simply fails."""
+        for _ in range(4):
+            assert live_client.post("/api/inspect", json={}).status_code == 200
+        assert _CountingCamera.opens == 1
+
+    def test_a_scripted_console_still_takes_a_scene(
+        self, client: fastapi_testclient.TestClient
+    ) -> None:
+        """The default path is untouched."""
+        body = client.post("/api/inspect", json={"scene": "empty"}).json()
+        assert body["verdict"] == "fail"
+        assert client.get("/api/scenes").json()["scenes"]
 
 
 class TestStaticSurface:

@@ -26,6 +26,7 @@ const $ = (id) => document.getElementById(id);
 
 let manifest = null;
 let scenes = [];
+let source = { live: false, source: "scripted scenes", engine: "simulated model" };
 let busy = false;
 
 async function getJSON(url, options) {
@@ -430,10 +431,12 @@ async function runInspection() {
   button.textContent = "Inspecting…";
 
   try {
+    /* A live console sends no scene, and the server refuses one. The input
+     * is whatever the camera is pointed at; there is nothing to choose. */
     await getJSON("/api/inspect", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ scene: $("scene").value }),
+      body: source.live ? "{}" : JSON.stringify({ scene: $("scene").value }),
     });
     await refresh();
   } catch (error) {
@@ -449,18 +452,33 @@ async function boot() {
   manifest = await getJSON("/api/manifest");
   $("manifest-name").textContent = `· ${manifest.name}`;
 
-  const payload = await getJSON("/api/scenes");
-  scenes = payload.scenes;
+  source = await getJSON("/api/source");
 
-  const select = $("scene");
-  for (const scene of scenes) {
-    const option = document.createElement("option");
-    option.value = scene.name;
-    option.textContent = scene.name;
-    select.appendChild(option);
+  if (source.live) {
+    /* No picker in front of a real camera. An operator who reads a dropdown
+     * of scene names believes the input is scripted, and a verdict about
+     * their actual kit would be shown under the name of a rehearsal. */
+    $("scene").hidden = true;
+    $("source-live").hidden = false;
+    $("source-live").title = "This console is inspecting real frames";
+    $("source-input").textContent = source.source;
+    $("source-engine").textContent = source.engine;
+    $("scene-description").textContent =
+      "Inspecting real frames. Point the camera at the kit and press Inspect.";
+  } else {
+    const payload = await getJSON("/api/scenes");
+    scenes = payload.scenes;
+
+    const select = $("scene");
+    for (const scene of scenes) {
+      const option = document.createElement("option");
+      option.value = scene.name;
+      option.textContent = scene.name;
+      select.appendChild(option);
+    }
+    select.addEventListener("change", describeScene);
+    describeScene();
   }
-  select.addEventListener("change", describeScene);
-  describeScene();
 
   $("run").addEventListener("click", runInspection);
 
