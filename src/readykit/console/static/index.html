@@ -40,15 +40,34 @@
     </div>
     <figure class="camera__pane">
       <figcaption class="camera__cap">Live <span class="panel__count">not recorded</span></figcaption>
-      <img class="camera__img" id="camera-live" alt="What the camera sees now">
-      <video class="camera__img" id="camera-video" autoplay playsinline muted hidden></video>
-      <p class="camera__empty" id="live-empty" hidden>The camera turns on when you press Inspect.</p>
+      <div class="camera__frame">
+        <img class="camera__img" id="camera-live" alt="What the camera sees now">
+        <video class="camera__img" id="camera-video" autoplay playsinline muted hidden></video>
+        <p class="camera__empty" id="live-empty" hidden>The camera turns on when you press Inspect or tick Auto.</p>
+        <div class="hold" id="hold" hidden>
+          <svg class="hold__ring" viewBox="0 0 40 40" aria-hidden="true">
+            <circle cx="20" cy="20" r="17"></circle>
+            <circle cx="20" cy="20" r="17" class="hold__arc" id="hold-arc"></circle>
+          </svg>
+          <span class="hold__text" id="hold-text"></span>
+        </div>
+      </div>
     </figure>
     <figure class="camera__pane">
       <figcaption class="camera__cap">Judged frame <span class="panel__count" id="judged-when"></span></figcaption>
       <img class="camera__img" id="camera-judged" alt="The frame the last verdict was decided on" hidden>
       <p class="camera__empty" id="judged-empty">Press Inspect to see what the model judges.</p>
-      <ul class="seen" id="judged-tags"></ul>
+      <div class="result">
+        <span class="mark" id="mark" data-state="none" aria-hidden="true">
+          <svg viewBox="0 0 40 40">
+            <circle cx="20" cy="20" r="17" class="mark__ring"></circle>
+            <path class="mark__glyph mark__pass" d="M12 20.5l5.5 5.5L28.5 14"></path>
+            <path class="mark__glyph mark__fail" d="M14 14l12 12M26 14L14 26"></path>
+            <path class="mark__glyph mark__hold" d="M15.5 15.5a4.5 4.5 0 1 1 6.2 4.2c-1.1.5-1.7 1.3-1.7 2.5v1M20 27.5v.1"></path>
+          </svg>
+        </span>
+        <ul class="seen" id="judged-tags"></ul>
+      </div>
       <p class="camera__status" id="judged-status"></p>
     </figure>
   </section>

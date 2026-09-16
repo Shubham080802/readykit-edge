@@ -832,3 +832,88 @@ body { min-height: 100vh; }
   cursor: pointer;
 }
 .compare__quote.is-open { display: block; }
+
+/* ------------------------------------------------------ hold still to inspect */
+
+.camera__frame { position: relative; }
+
+.hold {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 6px;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--canvas) 78%, transparent);
+  backdrop-filter: blur(6px);
+  font-size: 13px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.hold__ring { width: 28px; height: 28px; transform: rotate(-90deg); }
+.hold__ring circle { fill: none; stroke: var(--hairline-strong); stroke-width: 4; }
+.hold__ring .hold__arc {
+  stroke: var(--primary-hover);
+  stroke-linecap: round;
+  stroke-dasharray: 106.8;
+  stroke-dashoffset: 106.8;
+  transition: stroke-dashoffset 200ms linear;
+}
+
+/* ------------------------------------------------------------- result mark */
+
+.result {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: var(--space-sm);
+  align-items: start;
+  margin-top: var(--space-sm);
+}
+
+.result .seen { margin: 0; }
+
+.mark { width: 44px; height: 44px; display: block; }
+.mark[data-state="none"] { visibility: hidden; }
+.mark svg { width: 100%; height: 100%; overflow: visible; }
+.mark__ring { fill: none; stroke-width: 3; stroke: var(--hairline-strong); }
+.mark__glyph {
+  fill: none;
+  stroke-width: 3.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 40;
+  stroke-dashoffset: 40;
+  display: none;
+}
+
+/* Judging: a running arc, until the model answers. */
+.mark[data-state="judging"] .mark__ring {
+  stroke: var(--primary-hover);
+  stroke-dasharray: 30 77;
+  transform-origin: 20px 20px;
+  animation: mark-spin 900ms linear infinite;
+}
+
+/* The mark says what the verdict says - never a tick on a kit that did not
+ * pass. The glyph draws itself in once the answer lands. */
+.mark[data-state="pass"] .mark__ring { stroke: var(--verdict-pass); }
+.mark[data-state="fail"] .mark__ring { stroke: var(--verdict-fail); }
+.mark[data-state="indeterminate"] .mark__ring { stroke: var(--verdict-hold); }
+.mark[data-state="pass"] .mark__pass { display: block; stroke: var(--verdict-pass); }
+.mark[data-state="fail"] .mark__fail { display: block; stroke: var(--verdict-fail); }
+.mark[data-state="indeterminate"] .mark__hold { display: block; stroke: var(--verdict-hold); }
+.mark[data-state="pass"] .mark__glyph,
+.mark[data-state="fail"] .mark__glyph,
+.mark[data-state="indeterminate"] .mark__glyph { animation: mark-draw 450ms ease-out forwards; }
+
+@keyframes mark-spin { to { transform: rotate(360deg); } }
+@keyframes mark-draw { to { stroke-dashoffset: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .mark[data-state="judging"] .mark__ring { animation-duration: 2400ms; }
+  .mark__glyph { animation: none !important; stroke-dashoffset: 0; }
+}

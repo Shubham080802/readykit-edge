@@ -435,6 +435,7 @@ function renderJudged(last) {
     $("judged-empty").textContent = "No picture was captured for this inspection.";
   };
   img.src = `/api/inspected.jpg?id=${encodeURIComponent(id)}`;
+  $("mark").dataset.state = last.verdict;
   $("judged-when").textContent = last.started_at
     ? new Date(last.started_at).toLocaleTimeString()
     : "";
@@ -488,7 +489,7 @@ function showJudging(on) {
   const began = Date.now();
   const tick = () => {
     status.textContent =
-      `Judging the frame captured when you pressed Inspect… ` +
+      `Judging the captured frame… ` +
       `${Math.round((Date.now() - began) / 1000)}s`;
   };
   tick();
@@ -538,6 +539,7 @@ async function ensureBrowserCamera() {
  * has left the page. */
 function resetBrowserCamera() {
   $("auto").checked = false;
+  stopHoldWatch();
   if (stream) {
     for (const track of stream.getTracks()) track.stop();
     stream = null;
@@ -546,7 +548,134 @@ function resetBrowserCamera() {
   video.srcObject = null;
   video.hidden = true;
   $("live-empty").hidden = false;
-  $("live-empty").textContent = "Camera off. It turns on again when you press Inspect.";
+  $("live-empty").textContent = "Camera off. Press Inspect or tick Auto to turn it on.";
+
+  /* Clear the judged side too. judgedId keeps the last inspection's id, so
+   * the once-a-second refresh does not paint it straight back; the next
+   * inspection has a new id and shows as normal. */
+  const judged = $("camera-judged");
+  judged.hidden = true;
+  judged.removeAttribute("src");
+  $("judged-empty").hidden = false;
+  $("judged-empty").textContent = "Press Inspect, or tick Auto and hold the items still.";
+  $("judged-tags").innerHTML = "";
+  $("judged-status").textContent = "";
+  $("judged-when").textContent = "";
+  $("mark").dataset.state = "none";
+}
+
+/* ------------------------------------------------------- hold still to inspect
+ *
+ * With Auto ticked, the page watches the live view and inspects once it has
+ * stayed still for HOLD_MS - you hold the items up, the ring fills, and the
+ * frame is judged. The model takes ~20s a look, so inspecting only a steady
+ * scene is both kinder to it and closer to what you meant to show.
+ *
+ * After a look it waits for the view to change before counting again, so a
+ * scene left untouched is not inspected over and over. Stillness is measured
+ * on a 64x36 greyscale copy: cheap, and blind to sensor noise. It cannot
+ * tell whether anything is being held - an empty, still desk fills the ring
+ * too - which is the model's job, not this watcher's. */
+const HOLD_MS = 6000;
+const STILL_BELOW = 3; /* mean change per pixel, 0-255, between samples */
+let holdTimer = null;
+let holdSince = null;
+let holdNeedsChange = false;
+let previousSample = null;
+const sampler = document.createElement("canvas");
+
+function viewChange() {
+  const video = $("camera-video");
+  if (!video.videoWidth) return null;
+  sampler.width = 64;
+  sampler.height = 36;
+  const context = sampler.getContext("2d", { willReadFrequently: true });
+  context.drawImage(video, 0, 0, 64, 36);
+  const rgba = context.getImageData(0, 0, 64, 36).data;
+  const grey = new Uint8Array(64 * 36);
+  let change = 0;
+  for (let i = 0; i < grey.length; i++) {
+    grey[i] = (rgba[i * 4] * 3 + rgba[i * 4 + 1] * 4 + rgba[i * 4 + 2]) >> 3;
+    if (previousSample) change += Math.abs(grey[i] - previousSample[i]);
+  }
+  const first = !previousSample;
+  previousSample = grey;
+  return first ? 255 : change / grey.length;
+}
+
+function showHold(progress, text) {
+  $("hold").hidden = !text;
+  $("hold-text").textContent = text;
+  $("hold-arc").style.strokeDashoffset = String(106.8 * (1 - progress));
+}
+
+function watchHold() {
+  if (!$("auto").checked || !stream || busy) {
+    holdSince = null;
+    showHold(0, "");
+    return;
+  }
+  const change = viewChange();
+  if (change === null) return;
+  if (change > STILL_BELOW) {
+    holdSince = null;
+    holdNeedsChange = false;
+    showHold(0, "Hold the items still to inspect");
+    return;
+  }
+  if (holdNeedsChange) {
+    showHold(0, "Change what's in view to inspect again");
+    return;
+  }
+  if (holdSince === null) holdSince = Date.now();
+  const held = Date.now() - holdSince;
+  showHold(Math.min(1, held / HOLD_MS), `Hold still… ${Math.max(0, Math.ceil((HOLD_MS - held) / 1000))}s`);
+  if (held >= HOLD_MS) {
+    holdSince = null;
+    holdNeedsChange = true;
+    showHold(0, "");
+    runInspection();
+  }
+}
+
+async function startHoldWatch() {
+  try {
+    await ensureBrowserCamera();
+  } catch (error) {
+    $("auto").checked = false;
+    $("judged-status").textContent =
+      error && error.name === "NotAllowedError"
+        ? "Camera access was blocked. Allow the camera for this page in the browser's address bar."
+        : `Could not start the camera: ${error.message}`;
+    return;
+  }
+  stopHoldWatch();
+  previousSample = null;
+  holdNeedsChange = false;
+  holdTimer = setInterval(watchHold, 200);
+}
+
+function stopHoldWatch() {
+  clearInterval(holdTimer);
+  holdTimer = null;
+  holdSince = null;
+  showHold(0, "");
+}
+
+/* The frame is judged the moment it is captured: put it on the judged side
+ * straight away with a running mark, rather than leave the old picture there
+ * for the ~20s the model takes. The server's copy replaces it when the
+ * verdict lands - the same bytes. */
+function showCapturedFrame(blob) {
+  const judged = $("camera-judged");
+  judged.onload = () => URL.revokeObjectURL(judged.src);
+  judged.onerror = null;
+  judged.src = URL.createObjectURL(blob);
+  judged.hidden = false;
+  $("judged-empty").hidden = true;
+  $("judged-tags").innerHTML = "";
+  $("judged-when").textContent = new Date().toLocaleTimeString();
+  $("mark").dataset.state = "judging";
 }
 
 /* One frame, at most 960px on its longest side - the model gains nothing
@@ -598,7 +727,11 @@ async function runInspection() {
       await getJSON("/api/inspect-frame", {
         method: "POST",
         headers: { "Content-Type": "image/jpeg" },
-        body: await captureBrowserFrame(),
+        body: await (async () => {
+          const frame = await captureBrowserFrame();
+          showCapturedFrame(frame);
+          return frame;
+        })(),
       });
     } else {
       await getJSON("/api/inspect", {
@@ -616,6 +749,8 @@ async function runInspection() {
     $("verdict-reason").textContent = message;
     if (source.live) $("judged-status").textContent = message;
     $("auto").checked = false;
+    stopHoldWatch();
+    $("mark").dataset.state = "none";
     failed = true;
   } finally {
     if (source.live) {
@@ -630,7 +765,7 @@ async function runInspection() {
   }
   /* Auto: start the next look as soon as this one is decided. No fixed
    * timer - the model's own pace sets the rhythm, so looks never overlap. */
-  if (source.live && $("auto").checked) {
+  if (source.live && !source.browser_camera && $("auto").checked) {
     /* Re-checked when the timer fires: Reset in the gap must win. */
     setTimeout(() => { if ($("auto").checked) runInspection(); }, 500);
   }
@@ -660,7 +795,12 @@ async function boot() {
     for (const id of ["source-live", "run", "auto-wrap", "reset"]) actions.appendChild($(id));
     for (const id of ["run-title", "run-controls", "scene-description"]) $(id).hidden = true;
     $("auto").addEventListener("change", () => {
-      if ($("auto").checked) runInspection();
+      if (source.browser_camera) {
+        if ($("auto").checked) startHoldWatch();
+        else stopHoldWatch();
+      } else if ($("auto").checked) {
+        runInspection();
+      }
     });
     if (source.browser_camera) {
       $("camera-live").hidden = true;
