@@ -770,3 +770,17 @@ body { min-height: 100vh; }
   color: var(--ink-subtle);
   cursor: pointer;
 }
+
+/* The model named this item, but the kit check set its reading aside. */
+.tag[data-presence="set-aside"] {
+  border-style: dashed;
+  border-color: var(--hairline-tertiary);
+  color: var(--ink-subtle);
+}
+
+.camera__status {
+  margin: var(--space-xs) 0 0;
+  font-size: 13px;
+  color: var(--ink-subtle);
+  min-height: 1.4em;
+}

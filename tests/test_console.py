@@ -234,6 +234,50 @@ class TestSeeingWhatTheCameraSees:
         assert _CountingCamera.opens == 1
 
 
+class _NoKitEngine(_FixedEngine):
+    """Recognises the multimeter, but says no kit is in view."""
+
+    def infer(self, frame: Frame, manifest: Manifest) -> Observation:
+        reply = (
+            '{"kit_present":"no","items":['
+            '{"key":"multimeter","presence":"found","confidence":1.0}]}'
+        )
+        return Observation(
+            sightings=tuple(parse_reply(reply, manifest)), raw_reply=reply
+        )
+
+
+class TestExplainingASetAsideReading:
+    def test_the_models_words_are_shown_but_not_counted(
+        self, tmp_path: Path, node: VirtualActuatorNode
+    ) -> None:
+        camera = _CountingCamera()
+        app = create_app(
+            manifest=KIT,
+            log_path=tmp_path / "inspections.jsonl",
+            link=LoopbackLink(node),
+            source_factory=lambda: camera,
+            engine_factory=_NoKitEngine,
+            source_label="camera 0 via OpenCV",
+            engine_label="stub-vlm",
+        )
+        body = fastapi_testclient.TestClient(app).post("/api/inspect", json={}).json()
+        items = {item["key"]: item for item in body["items"]}
+
+        assert body["verdict"] == "indeterminate"
+        assert body["kit_absent"] is True
+        assert items["multimeter"]["presence"] == "unreadable"
+        assert items["multimeter"]["model_said"] == "found"
+        assert items["hardhat"]["model_said"] is None
+
+    def test_nothing_is_marked_set_aside_when_the_kit_is_in_view(
+        self, live_client: fastapi_testclient.TestClient
+    ) -> None:
+        body = live_client.post("/api/inspect", json={}).json()
+        assert body["kit_absent"] is False
+        assert all(item["model_said"] is None for item in body["items"])
+
+
 class TestStaticSurface:
     def test_index_is_served(
         self, client: fastapi_testclient.TestClient

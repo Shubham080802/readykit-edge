@@ -13,7 +13,13 @@ from __future__ import annotations
 import pytest
 
 from readykit.domain import Manifest, Presence, RequiredItem, Sighting
-from readykit.reply import ReplyParseError, build_prompt, parse_reply
+from readykit.reply import (
+    ReplyParseError,
+    build_prompt,
+    kit_reported_absent,
+    parse_reply,
+    readings_before_kit_check,
+)
 
 KIT = Manifest(
     manifest_id="k",
@@ -188,3 +194,32 @@ class TestTheKitItselfMustBeEstablished:
         sighting = by_key(parse_reply(raw, KIT))["multimeter"]
         assert sighting.expiry is None
         assert sighting.count is None
+
+
+
+class TestWhatTheModelSaidBeforeTheKitCheck:
+    """Found while running the console on a real webcam: the model recognised
+    the phone in the operator's hand - "found", 100% - and said no kit was in
+    view, so every tag read "unreadable 0%" and nothing explained why."""
+
+    REPLY = (
+        '{"kit_present": "no", "items": ['
+        '{"key": "multimeter", "presence": "found", "confidence": 1.0}]}'
+    )
+
+    def test_the_verdict_still_sets_the_reading_aside(self) -> None:
+        sighting = by_key(parse_reply(self.REPLY, KIT))["multimeter"]
+        assert sighting.presence is Presence.UNREADABLE
+
+    def test_the_models_own_reading_is_available_for_display(self) -> None:
+        assert readings_before_kit_check(self.REPLY, KIT) == {
+            "multimeter": Presence.FOUND
+        }
+
+    def test_a_kit_reported_absent_is_recognised(self) -> None:
+        assert kit_reported_absent(self.REPLY)
+        assert not kit_reported_absent(self.REPLY.replace('"no"', '"yes"'))
+
+    def test_an_unparseable_reply_yields_nothing_to_show(self) -> None:
+        assert readings_before_kit_check("sorry, I cannot help", KIT) == {}
+        assert not kit_reported_absent("sorry, I cannot help")

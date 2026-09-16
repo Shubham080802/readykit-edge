@@ -171,6 +171,39 @@ def parse_reply(raw: str, manifest: Manifest) -> list[Sighting]:
     return sightings
 
 
+def readings_before_kit_check(raw: str, manifest: Manifest) -> dict[str, Presence]:
+    """What the model said about each item, before the kit check set it aside.
+
+    For display only - never pass this to `resolve_verdict`. When the model
+    says the kit is not in view, `parse_reply` rightly discards its item
+    readings, and an operator sees three "unreadable" tags with no idea the
+    model did in fact recognise the phone in their hand. Showing its words,
+    marked as not counted, explains the verdict without changing it.
+    """
+    try:
+        document = _extract_json_object(raw)
+    except ReplyParseError:
+        return {}
+    entries = document.get("items")
+    if not isinstance(entries, list):
+        return {}
+    known = set(manifest.keys)
+    readings: dict[str, Presence] = {}
+    for entry in entries:
+        sighting = _parse_entry(entry, known)
+        if sighting is not None:
+            readings[sighting.key] = sighting.presence
+    return readings
+
+
+def kit_reported_absent(raw: str) -> bool:
+    """Whether the model's reply says the kit itself is not in view."""
+    try:
+        return not _kit_established(_extract_json_object(raw))
+    except ReplyParseError:
+        return False
+
+
 def _kit_established(document: dict[str, Any]) -> bool:
     """Whether the model said it can actually see the kit.
 

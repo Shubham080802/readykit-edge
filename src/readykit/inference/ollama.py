@@ -199,6 +199,23 @@ def _image_bytes(frame: Frame) -> bytes:
     return _encode_jpeg(image)
 
 
+MAX_CAMERA_SIDE = 960
+"""Longest side, in pixels, of a camera frame sent to the model.
+
+Reading the picture, not writing the answer, is most of what an inspection
+costs here. Measured with qwen2.5vl:7b on an Apple M-series Mac, same frame
+and prompt:
+
+    1920x1080   3281 prompt tokens   34.3s reading   39.5s total
+     960x540    1622 prompt tokens   15.8s reading   20.9s total
+     640x360    1622 prompt tokens   15.3s reading   20.0s total
+
+960 halves the wait, and going smaller buys nothing: Ollama's own resizing
+holds the token count flat below it. Only camera arrays are resized - an
+image file is sent as it was given.
+"""
+
+
 def _encode_jpeg(image: Any) -> bytes:
     try:
         import cv2
@@ -209,10 +226,19 @@ def _encode_jpeg(image: Any) -> bytes:
         ) from exc
 
     try:
+        height, width = image.shape[:2]
+        longest = max(height, width)
+        if longest > MAX_CAMERA_SIDE:
+            scale = MAX_CAMERA_SIDE / longest
+            image = cv2.resize(
+                image,
+                (round(width * scale), round(height * scale)),
+                interpolation=cv2.INTER_AREA,
+            )
         ok, buffer = cv2.imencode(
             ".jpg", image, [int(cv2.IMWRITE_JPEG_QUALITY), 92]
         )
-    except cv2.error as exc:
+    except (cv2.error, AttributeError, ValueError) as exc:
         raise InferenceError(f"could not encode the captured frame: {exc}") from exc
     if not ok:
         raise InferenceError("could not encode the captured frame as JPEG")

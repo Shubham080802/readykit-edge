@@ -440,14 +440,46 @@ function renderJudged(last) {
   for (const item of last.items) {
     const tag = document.createElement("li");
     tag.className = "tag";
-    tag.dataset.presence = item.presence;
-    const confidence =
-      typeof item.confidence === "number" && item.presence !== "unreported"
-        ? ` ${Math.round(item.confidence * 100)}%`
-        : "";
-    tag.textContent = `${item.label}: ${item.presence}${confidence}`;
+    if (item.model_said) {
+      /* The model named this item, but said no kit is in view, so the
+       * reading was set aside. Show its words, marked as not counted -
+       * "unreadable 0%" alone hides that it recognised the thing at all. */
+      tag.dataset.presence = "set-aside";
+      tag.textContent = `${item.label}: model said ${item.model_said} · not counted`;
+      tag.title = "Not counted: the model said no kit is in view";
+    } else {
+      tag.dataset.presence = item.presence;
+      const confidence =
+        typeof item.confidence === "number" && item.presence !== "unreported"
+          ? ` ${Math.round(item.confidence * 100)}%`
+          : "";
+      tag.textContent = `${item.label}: ${item.presence}${confidence}`;
+    }
     tags.appendChild(tag);
   }
+
+  $("judged-status").textContent = last.kit_absent
+    ? "The model sees no kit laid out, so nothing it saw is counted. " +
+      "Put the items down together, in front of the camera."
+    : "";
+}
+
+/* A look takes tens of seconds. A counting timer makes that visible, so a
+ * slow model reads as working rather than frozen. */
+let judgingTimer = null;
+
+function showJudging(on) {
+  const status = $("judged-status");
+  clearInterval(judgingTimer);
+  if (!on) return;
+  const began = Date.now();
+  const tick = () => {
+    status.textContent =
+      `Judging the frame captured when you pressed Inspect… ` +
+      `${Math.round((Date.now() - began) / 1000)}s`;
+  };
+  tick();
+  judgingTimer = setInterval(tick, 1000);
 }
 
 /* Live view: fetch the next frame only once the previous one has arrived, so
@@ -482,6 +514,7 @@ async function runInspection() {
   const button = $("run");
   button.disabled = true;
   button.textContent = "Inspecting…";
+  if (source.live) showJudging(true);
 
   try {
     /* A live console sends no scene, and the server refuses one. The input
@@ -495,6 +528,10 @@ async function runInspection() {
   } catch (error) {
     $("verdict-reason").textContent = `Console error: ${error.message}`;
   } finally {
+    if (source.live) {
+      showJudging(false);
+      judgedId = null; /* redraw tags and status for the verdict just landed */
+    }
     busy = false;
     button.disabled = false;
     button.textContent = "Inspect";

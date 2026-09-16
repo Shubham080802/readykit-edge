@@ -26,6 +26,7 @@ from ..inference.base import InferenceEngine
 from ..inference.simulated import SimulatedEngine
 from ..protocol import Command
 from ..recorder import InspectionLog
+from ..reply import kit_reported_absent, readings_before_kit_check
 
 STATIC = Path(__file__).parent / "static"
 
@@ -324,6 +325,8 @@ def _serialise(outcome: Any, manifest: Manifest) -> dict[str, Any]:
     short = set(resolution.short)
 
     sightings = {s.key: s for s in record.sightings}
+    said = readings_before_kit_check(record.raw_reply, manifest)
+    kit_absent = kit_reported_absent(record.raw_reply)
     items = []
     for item in manifest.items:
         sighting = sightings.get(item.key)
@@ -335,6 +338,13 @@ def _serialise(outcome: Any, manifest: Manifest) -> dict[str, Any]:
                 "presence": sighting.presence.value if sighting else "unreported",
                 "confidence": round(sighting.confidence, 3) if sighting else None,
                 "note": sighting.note if sighting else "",
+                # The model's own reading when the kit check set it aside.
+                # Display only: the verdict above never used it.
+                "model_said": (
+                    said[item.key].value
+                    if kit_absent and item.key in said
+                    else None
+                ),
                 "blamed": item.key in blamed,
                 "unresolved": item.key in unresolved or sighting is None,
                 "expiry_checked": item.expiry_checked,
@@ -353,6 +363,7 @@ def _serialise(outcome: Any, manifest: Manifest) -> dict[str, Any]:
 
     return {
         "inspection_id": record.inspection_id,
+        "kit_absent": kit_absent,
         "verdict": resolution.verdict.value,
         "reason": resolution.reason,
         "items": items,

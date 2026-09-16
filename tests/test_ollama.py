@@ -110,6 +110,17 @@ class TestFrameBytes:
         assert encoded[:2] == b"\xff\xd8", "not a JPEG start-of-image marker"
         assert encoded[-2:] == b"\xff\xd9", "not a JPEG end-of-image marker"
 
+    def test_a_full_hd_camera_frame_is_sent_at_most_960_pixels_wide(self) -> None:
+        """Reading a 1920x1080 frame took 34s of a 40s inspection on a Mac;
+        at 960 the whole inspection took 21s."""
+        np = pytest.importorskip("numpy")
+        cv2 = pytest.importorskip("cv2")
+        encoded = _image_bytes(
+            Frame(image=np.zeros((1080, 1920, 3), dtype=np.uint8), digest="d")
+        )
+        decoded = cv2.imdecode(np.frombuffer(encoded, dtype=np.uint8), 1)
+        assert decoded.shape[:2] == (540, 960)
+
 
 class TestAgainstARunningServer:
     """Skipped unless Ollama is actually up, so CI stays offline."""
