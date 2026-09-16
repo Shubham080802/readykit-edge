@@ -532,6 +532,23 @@ async function ensureBrowserCamera() {
   await new Promise((resolve) => setTimeout(resolve, 700));
 }
 
+/* Switch the camera off: stop every track so the browser releases the device
+ * and its recording light goes out, and stop Auto so it does not just turn
+ * the camera back on. An inspection already sent still finishes - the frame
+ * has left the page. */
+function resetBrowserCamera() {
+  $("auto").checked = false;
+  if (stream) {
+    for (const track of stream.getTracks()) track.stop();
+    stream = null;
+  }
+  const video = $("camera-video");
+  video.srcObject = null;
+  video.hidden = true;
+  $("live-empty").hidden = false;
+  $("live-empty").textContent = "Camera off. It turns on again when you press Inspect.";
+}
+
 /* One frame, at most 960px on its longest side - the model gains nothing
  * from more, and it halves the time the model spends reading it. */
 async function captureBrowserFrame() {
@@ -613,7 +630,10 @@ async function runInspection() {
   }
   /* Auto: start the next look as soon as this one is decided. No fixed
    * timer - the model's own pace sets the rhythm, so looks never overlap. */
-  if (source.live && $("auto").checked) setTimeout(runInspection, 500);
+  if (source.live && $("auto").checked) {
+    /* Re-checked when the timer fires: Reset in the gap must win. */
+    setTimeout(() => { if ($("auto").checked) runInspection(); }, 500);
+  }
 }
 
 async function boot() {
@@ -637,7 +657,7 @@ async function boot() {
     $("auto-wrap").hidden = false;
     /* Put Inspect beside the camera it acts on, instead of a scroll away. */
     const actions = $("camera-actions");
-    for (const id of ["source-live", "run", "auto-wrap"]) actions.appendChild($(id));
+    for (const id of ["source-live", "run", "auto-wrap", "reset"]) actions.appendChild($(id));
     for (const id of ["run-title", "run-controls", "scene-description"]) $(id).hidden = true;
     $("auto").addEventListener("change", () => {
       if ($("auto").checked) runInspection();
@@ -645,6 +665,8 @@ async function boot() {
     if (source.browser_camera) {
       $("camera-live").hidden = true;
       $("live-empty").hidden = false;
+      $("reset").hidden = false;
+      $("reset").addEventListener("click", resetBrowserCamera);
     } else {
       startLiveView();
     }
