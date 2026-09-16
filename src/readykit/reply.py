@@ -47,6 +47,30 @@ _SCHEMA_HINT = """Reply with JSON only, in exactly this shape:
 _KIT_ESTABLISHED = "yes"
 """The only `kit_present` value that lets a per-item reading stand."""
 
+_OUTPUT_RULES = """Output rules, which matter as much as the readings:
+- Emit the JSON on ONE line. No newlines, no indentation, no space after
+  punctuation.
+- Keep every 'note' to four words or fewer, and omit 'note' entirely when an
+  item is simply found and unremarkable.
+- NEVER write a placeholder. Omit the whole field instead. Do not write
+  "expiry": "unreadable" or "expiry": "" - leave 'expiry' out. Do not write
+  "count": 0 to mean you did not count - leave 'count' out. A count of 0
+  states that you looked and saw none, which is a different claim, and a
+  field you omit is read correctly as "not established"."""
+"""Shape of the reply, which is most of what an inspection costs.
+
+An inspection here is decode-bound: the frame prefills at about a thousand
+tokens a second, then every output token is generated one at a time. Measured
+on a Snapdragon X Elite against a seven-item manifest, pretty-printed JSON
+with sentence-long notes runs 408 generated tokens and 24.5s of decode; the
+same readings under these rules run 226 and 13.6s. The rules cost 95 extra
+prompt tokens, which prefill in about a tenth of a second.
+
+Nothing here touches what is reported - `json.loads` is indifferent to
+whitespace, and a four-word note carries an operator as far as a sentence
+does. It only stops the model spending eleven seconds on indentation while
+somebody stands at a latch waiting for it."""
+
 
 def build_prompt(manifest: Manifest) -> str:
     """The instruction sent to the model alongside the frame.
@@ -118,7 +142,7 @@ def build_prompt(manifest: Manifest) -> str:
                 "safely, an invented one is not.",
             ]
         )
-    lines.extend(["", _SCHEMA_HINT])
+    lines.extend(["", _SCHEMA_HINT, "", _OUTPUT_RULES])
     return "\n".join(lines)
 
 

@@ -328,6 +328,18 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
         outcome = engine.run_once()
         _render(outcome, engine)
         _record(args, outcome)
+        if outcome.verdict is Verdict.PASS and args.link == "serial":
+            # The latch really did open, and is about to shut again as this
+            # command exits and the link closes the enclosure behind it. On a
+            # bench that reads as a fault - a green flash, then red - so say
+            # what happened rather than leave it looking like a bad board.
+            print(
+                f"{DIM}  the latch opened, and re-engages now: `inspect` is one "
+                f"shot, and closing the link returns the enclosure to its safe "
+                f"state.\n  to watch it hold for the manifest's "
+                f"{engine.manifest.hold_seconds:g}s, use `readykit sentinel`"
+                f".{RESET}"
+            )
         return 0 if outcome.verdict is Verdict.PASS else 2
 
 

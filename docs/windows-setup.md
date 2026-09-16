@@ -391,6 +391,19 @@ report `unknown version` and pip will not list it. Hand-write a
 `opencv_python-5.0.0.dist-info` with `METADATA`, `WHEEL`, `INSTALLER`,
 `top_level.txt` and a `RECORD` to fix both.
 
+**Back the result up once it works.** It is half an hour of compiling and
+five separate workarounds, and it is about 10 MB zipped:
+
+```powershell
+Compress-Archive -Path C:\Python312-arm64\Lib\site-packages\cv2, `
+                       C:\Python312-arm64\Lib\site-packages\opencv_python-5.0.0.dist-info `
+                 -DestinationPath cv2-win-arm64-py312.zip
+```
+
+Restoring is unzipping it back into `site-packages`. Keep a `pip freeze`
+beside it - this environment is hand-built rather than reproducible from
+`pyproject.toml` alone, and the day you need it is the day it broke.
+
 ---
 
 ## Stage 6 — The board
