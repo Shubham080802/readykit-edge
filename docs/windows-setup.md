@@ -41,27 +41,46 @@ it), skip the installer entirely and use the embeddable build instead:
 ```powershell
 Invoke-WebRequest https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-arm64.zip -OutFile py.zip
 Expand-Archive py.zip C:\Python312-arm64
-(Get-Content C:\Python312-arm64\python312._pth) -replace '#import site', 'import site' |
-    Set-Content C:\Python312-arm64\python312._pth
+Remove-Item C:\Python312-arm64\python312._pth      # see below - do not keep this
 Invoke-WebRequest https://bootstrap.pypa.io/get-pip.py -OutFile get-pip.py
 C:\Python312-arm64\python.exe get-pip.py
 ```
 
-This has no `venv` module - there is no per-project virtual environment, this
-*is* the environment - and pip's build isolation does not work in it (the
-`._pth` file hardcodes `sys.path` and ignores `PYTHONPATH`, which is what
-isolation relies on to inject its temp environment). Any package that needs to
-build from source - `geniex` always does, see stage 3b - needs
-`--no-build-isolation` with `setuptools`, `wheel`, and `tomli` pre-installed:
+**Deleting `python312._pth` is the important step.** That file hardcodes
+`sys.path`, and in doing so it disables three things everything downstream
+needs: `PYTHONPATH` (so pip's build isolation silently cannot find its own
+temp environment, and every source build dies with
+`BackendUnavailable: Cannot import ...`), `site` processing (so `.pth` files
+from editable installs are ignored), and the automatic
+script-directory-on-`sys.path` rule (so any build script that imports a helper
+module sitting beside it fails - OpenCV's `gen2.py` importing `hdr_parser` is
+one). Removing it makes the embeddable build behave like a normal install:
+it still finds its stdlib in `python312.zip` next to `python.exe`.
+
+There is still no `venv` module, so there is no per-project virtual
+environment - this *is* the environment. Install into it directly:
 
 ```powershell
-C:\Python312-arm64\python.exe -m pip install hatchling editables setuptools wheel tomli
-C:\Python312-arm64\python.exe -m pip install -e ".[dev,console]" --no-build-isolation
+C:\Python312-arm64\python.exe -m pip install -e ".[dev,console]"
 ```
 
 Add `C:\Python312-arm64` and `C:\Python312-arm64\Scripts` to `PATH` so
 `readykit`, `pytest`, etc. resolve directly instead of needing the full path
 every time.
+
+### If you need the dev headers too
+
+The embeddable build ships no `include\` or `libs\`, so nothing can compile a
+C extension against it - which matters if you end up building OpenCV
+(stage 5). They are in the installer you could not run, and `msiexec /a`
+extracts an MSI without installing it. Pull `dev.msi` out of the bundle's
+attached container with 7-Zip, then:
+
+```powershell
+msiexec /a dev.msi /qn TARGETDIR=C:\pydev
+Copy-Item C:\pydev\include C:\Python312-arm64\include -Recurse
+Copy-Item C:\pydev\libs    C:\Python312-arm64\libs    -Recurse
+```
 
 ---
 
@@ -169,11 +188,11 @@ geniex --version
 ```
 
 PyPI ships `geniex` as a source archive rather than a wheel, so this step may
-compile. If it fails with `BackendUnavailable: Cannot import '_geniex_backend'`
-(seen even with a normal `venv`, not just the embeddable fallback above), it
-means build isolation could not reach the sdist's own in-tree backend. Fix it
-by pre-installing the backend's own build dependencies and disabling
-isolation for this one package:
+compile. If it fails with `BackendUnavailable: Cannot import '_geniex_backend'`,
+build isolation could not reach the sdist's own in-tree backend - on the
+embeddable build in stage 1, that is the `._pth` file, and deleting it as
+described there fixes this too. Otherwise, pre-install the backend's build
+dependencies and disable isolation for this one package:
 
 ```powershell
 .venv\Scripts\pip install --no-build-isolation setuptools wheel tomli
@@ -267,6 +286,10 @@ So this will fail:
 That gets you the **serial link to the Arduino** and everything except live
 camera capture.
 
+Two ways to get the camera back: use ffmpeg instead (below - simpler, and the
+default recommendation), or build OpenCV yourself (further down - about half
+an hour, and then `--camera` works natively).
+
 ### Use `--ffmpeg-camera`, not `--camera`
 
 ffmpeg ships a native ARM64 Windows build, so capture goes through it instead:
@@ -307,6 +330,56 @@ the device, so the warmup frames are close to free. That is well under what a
 
 Do not solve this by installing x64 Python under emulation. It would get OpenCV
 working and break GenieX, which is the wrong trade.
+
+### Or build OpenCV for ARM64 yourself
+
+There is no upstream wheel, but the source builds fine natively. Confirmed
+working: OpenCV 5.0.0, `cv2.cp312-win_arm64.pyd`, `--camera` and
+`cv2.imencode` both live. Budget about half an hour of compile time.
+
+You need three things PyPI will not give you: an ARM64-hosted C++ toolchain
+([llvm-mingw](https://github.com/mstorsjo/llvm-mingw/releases), the
+`ucrt-aarch64` build), [CMake](https://cmake.org/download/) and
+[Ninja](https://github.com/ninja-build/ninja/releases) (both ship
+`windows-arm64` zips), and the Python dev headers from the section in stage 1.
+
+```powershell
+cmake -G Ninja `
+  -DCMAKE_C_COMPILER=aarch64-w64-mingw32-gcc.exe `
+  -DCMAKE_CXX_COMPILER=aarch64-w64-mingw32-g++.exe `
+  -DCMAKE_BUILD_TYPE=Release `
+  -DBUILD_LIST="core,imgproc,imgcodecs,videoio,python3" `
+  -DPYTHON3_EXECUTABLE="C:/Python312-arm64/python.exe" `
+  -DPYTHON3_INCLUDE_DIR="C:/Python312-arm64/include" `
+  -DPYTHON3_LIBRARY="C:/Python312-arm64/libs/python312.lib" `
+  -DPYTHON3_NUMPY_INCLUDE_DIRS="C:/Python312-arm64/Lib/site-packages/numpy/_core/include" `
+  -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_DOCS=OFF `
+  C:/path/to/opencv-5.0.0
+ninja && ninja install
+```
+
+Four things will bite, in the order you will hit them:
+
+- **Use forward slashes in every `-D` path.** CMake parses `\U` in
+  `C:\Users\...` as an invalid escape and dies during configure.
+- **`BUILD_LIST` is doing real work.** The bundled MLAS (in the `dnn` module)
+  only compiles ARM64 NEON intrinsics under MSVC - against clang it fails with
+  `unknown type name 'float32x4_t'`. `stereo` fails separately on
+  `std::back_inserter` without `<iterator>`. Restricting the list sidesteps
+  both, and readykit only needs `imgcodecs` and `videoio` anyway.
+- **`modules/python/src2/cv2.cpp` needs `#include <iterator>` added.** Same
+  `std::back_inserter` problem: llvm-mingw uses libc++, which does not leak
+  that header transitively the way libstdc++ and MSVC do.
+- **The `.pyd` needs its DLLs beside it.** Copy the six `libopencv_*500.dll`
+  from the build's `bin\`, plus `libc++.dll`, `libunwind.dll` and
+  `libwinpthread-1.dll` from the toolchain, into
+  `site-packages\cv2\python-3.12\`. Without them the import fails with
+  `DLL load failed while importing cv2`.
+
+`ninja install` does not write package metadata, so `readykit doctor` will
+report `unknown version` and pip will not list it. Hand-write a
+`opencv_python-5.0.0.dist-info` with `METADATA`, `WHEEL`, `INSTALLER`,
+`top_level.txt` and a `RECORD` to fix both.
 
 ---
 
