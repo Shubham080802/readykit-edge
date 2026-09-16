@@ -645,7 +645,7 @@ function watchHold() {
     holdSince = null;
     holdNeedsChange = true;
     showHold(0, "");
-    runInspection();
+    runInspection({ settle: false });
   }
 }
 
@@ -729,13 +729,38 @@ async function refresh() {
   renderSafely("records", () => renderRecords(records.records, state.tally));
 }
 
-async function runInspection() {
+/* Pressing Inspect gives you SETTLE_MS to put the items in place and take
+ * your hand away before the frame is taken, counted down on the live view.
+ * Reset during the countdown cancels it. The hold-still watcher skips this:
+ * it has already waited for a steady view. */
+const SETTLE_MS = 6000;
+
+async function settleCountdown(began) {
+  for (;;) {
+    if (!stream) {
+      const cancelled = new Error("cancelled");
+      cancelled.name = "Cancelled";
+      throw cancelled;
+    }
+    const left = SETTLE_MS - (Date.now() - began);
+    if (left <= 0) break;
+    showHold(1 - left / SETTLE_MS, `Capturing in ${Math.ceil(left / 1000)}s`);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  showHold(0, "");
+}
+
+async function runInspection(options) {
   if (busy) return;
   busy = true;
+  const settle = !(options && options.settle === false);
+  /* Counted from the click, so the camera's own start-up is inside the six
+   * seconds rather than added to them. */
+  const clickedAt = Date.now();
   const button = $("run");
   button.disabled = true;
-  button.textContent = "Inspecting…";
-  if (source.live) showJudging(true);
+  button.textContent = source.browser_camera && settle ? "Get ready…" : "Inspecting…";
+  if (source.live && !source.browser_camera) showJudging(true);
 
   let failed = false;
   try {
@@ -747,8 +772,11 @@ async function runInspection() {
         method: "POST",
         headers: { "Content-Type": "image/jpeg" },
         body: await (async () => {
+          if (settle) await settleCountdown(clickedAt);
           const frame = await captureBrowserFrame();
           showCapturedFrame(frame);
+          button.textContent = "Inspecting…";
+          showJudging(true);
           return frame;
         })(),
       });
@@ -761,6 +789,10 @@ async function runInspection() {
     }
     await refresh();
   } catch (error) {
+    if (error && error.name === "Cancelled") {
+      failed = true; /* keep Reset's cleared panel as it is */
+      return;
+    }
     const denied = error && error.name === "NotAllowedError";
     const message = denied
       ? "Camera access was blocked. Allow the camera for this page in the browser's address bar, then press Inspect again."
