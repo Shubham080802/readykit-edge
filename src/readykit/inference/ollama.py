@@ -118,21 +118,14 @@ class OllamaEngine(InferenceEngine):
     # -- inference -----------------------------------------------------------
 
     def infer(self, frame: Frame, manifest: Manifest) -> Observation:
-        image = _image_bytes(frame)
         request = json.dumps(
-            {
-                "model": self.model_id,
-                "prompt": build_prompt(manifest),
-                "images": [base64.b64encode(image).decode("ascii")],
-                "stream": False,
-                "options": {"temperature": self._temperature},
-            }
+            chat_request(self.model_id, manifest, _image_bytes(frame), self._temperature)
         ).encode()
 
         try:
             with urllib.request.urlopen(
                 urllib.request.Request(
-                    f"{self.host}/api/generate",
+                    f"{self.host}/api/chat",
                     data=request,
                     headers={"Content-Type": "application/json"},
                 ),
@@ -148,7 +141,8 @@ class OllamaEngine(InferenceEngine):
         except (OSError, ValueError) as exc:
             raise InferenceError(f"Ollama inference failed: {exc}") from exc
 
-        raw = payload.get("response")
+        message = payload.get("message")
+        raw = message.get("content") if isinstance(message, dict) else None
         if not isinstance(raw, str):
             # No text at all is a different failure from unusable text, and
             # only the latter is something the blueprint could have parsed.
@@ -197,6 +191,40 @@ def _image_bytes(frame: Frame) -> bytes:
             "Use --camera, --ffmpeg-camera or --image, or --engine simulated."
         )
     return _encode_jpeg(image)
+
+
+KEEP_LOADED = "30m"
+"""How long Ollama keeps the model in memory after a look. Its default, five
+minutes, unloads it between unhurried inspections, and loading it back adds
+seconds to the next one."""
+
+
+def chat_request(
+    model_id: str, manifest: Manifest, image: bytes, temperature: float
+) -> dict[str, Any]:
+    """The request body for one inspection.
+
+    The instructions go in a system message ahead of the frame, not after it
+    in a single prompt. Ollama reuses work for a request that starts the same
+    way as the last one, and the instructions are the same every time - but
+    only while they come first. Measured with qwen2.5vl:7b on an M-series Mac
+    over three different frames: 18.0s, then 14.4s and 15.2s, against ~19s
+    for every frame when the image led.
+    """
+    return {
+        "model": model_id,
+        "messages": [
+            {"role": "system", "content": build_prompt(manifest)},
+            {
+                "role": "user",
+                "content": "Inspect this image.",
+                "images": [base64.b64encode(image).decode("ascii")],
+            },
+        ],
+        "stream": False,
+        "keep_alive": KEEP_LOADED,
+        "options": {"temperature": temperature},
+    }
 
 
 MAX_CAMERA_SIDE = 960

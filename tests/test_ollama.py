@@ -24,6 +24,7 @@ from readykit.inference.ollama import (
     DEFAULT_MODEL,
     OllamaEngine,
     _image_bytes,
+    chat_request,
 )
 
 KIT = Manifest(
@@ -138,3 +139,31 @@ class TestAgainstARunningServer:
             assert "pull" in str(exc) or "no Ollama server" in str(exc)
         else:
             pytest.fail("a nonexistent model should not have been accepted")
+
+
+PEN_KIT = Manifest(
+    manifest_id="k", name="Kit", items=(RequiredItem(key="pen", label="Pen"),)
+)
+
+
+class TestTheInstructionsComeFirst:
+    """Ollama reuses work for a request that starts like the last one. The
+    instructions never change between looks, so they lead, as a system
+    message, and only the frame differs - measured 18.0s then ~15s per look,
+    against ~19s every time when the image came first."""
+
+    def test_the_instructions_are_a_system_message_ahead_of_the_frame(self) -> None:
+        manifest = PEN_KIT
+        body = chat_request("qwen2.5vl:7b", manifest, b"\xff\xd8jpeg", 0.0)
+        system, user = body["messages"]
+        assert system["role"] == "system"
+        assert "key=pen" in system["content"]
+        assert "images" not in system
+        assert user["role"] == "user" and len(user["images"]) == 1
+
+    def test_the_request_does_not_depend_on_the_frame_before_the_image(self) -> None:
+        manifest = PEN_KIT
+        first = chat_request("m", manifest, b"one", 0.0)
+        second = chat_request("m", manifest, b"two", 0.0)
+        assert first["messages"][0] == second["messages"][0]
+        assert first["keep_alive"]

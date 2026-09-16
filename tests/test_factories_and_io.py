@@ -185,7 +185,9 @@ class TestOllamaInference:
                 return FakeResponse(
                     json.dumps({"models": [{"name": "qwen2.5vl:7b"}]}).encode()
                 )
-            return FakeResponse(json.dumps({"response": reply}).encode())
+            return FakeResponse(
+                json.dumps({"message": {"role": "assistant", "content": reply}}).encode()
+            )
 
         monkeypatch.setattr(
             "readykit.inference.ollama.urllib.request.urlopen", urlopen
