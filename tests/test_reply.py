@@ -133,3 +133,58 @@ class TestPrompt:
         """The model needs a way to say 'I could not see it' that is not a
         guess in either direction."""
         assert "unreadable" in build_prompt(KIT)
+
+    def test_prompt_does_not_assert_the_kit_is_present(self) -> None:
+        """Telling the model it is looking at a kit is what makes it invent
+        one. The prompt has to ask, not assume."""
+        prompt = build_prompt(KIT)
+        assert "may or may not contain" in prompt
+        assert "kit_present" in prompt
+
+
+class TestTheKitItselfMustBeEstablished:
+    """A kit nobody has established is present cannot have contents.
+
+    Observed on real hardware: handed an empty room, the model reported every
+    item of a trauma kit as `found` at 0.95+, stably across three frames.
+    Confidence does not catch that and neither does aggregation, so the scene
+    is established before the contents are believed.
+    """
+
+    FOUND_EVERYTHING = (
+        '{{"kit_present": "{gate}", "items": ['
+        '{{"key": "multimeter", "presence": "found", "confidence": 0.97}},'
+        '{{"key": "hardhat", "presence": "found", "confidence": 0.96}}]}}'
+    )
+
+    @pytest.mark.parametrize("gate", ["no", "unclear", "No", " UNCLEAR "])
+    def test_confident_finds_are_refused_when_the_kit_is_not_established(
+        self, gate: str
+    ) -> None:
+        result = by_key(parse_reply(self.FOUND_EVERYTHING.format(gate=gate), KIT))
+        assert [s.presence for s in result.values()] == [
+            Presence.UNREADABLE,
+            Presence.UNREADABLE,
+        ]
+        assert all(s.confidence == 0.0 for s in result.values())
+
+    def test_a_confident_find_stands_once_the_kit_is_established(self) -> None:
+        result = by_key(parse_reply(self.FOUND_EVERYTHING.format(gate="yes"), KIT))
+        assert result["multimeter"].presence is Presence.FOUND
+        assert result["multimeter"].confidence == pytest.approx(0.97)
+
+    def test_an_unanswered_gate_falls_back_to_the_per_item_readings(self) -> None:
+        """A model that never answered the question has not said no to it."""
+        raw = '{"items": [{"key": "multimeter", "presence": "found", "confidence": 0.9}]}'
+        assert by_key(parse_reply(raw, KIT))["multimeter"].presence is Presence.FOUND
+
+    def test_an_unestablished_kit_discards_expiry_and_count(self) -> None:
+        """Nothing read off a kit that was never established survives it."""
+        raw = (
+            '{"kit_present": "no", "items": [{"key": "multimeter", '
+            '"presence": "found", "confidence": 0.97, "expiry": "2027-01-01", '
+            '"count": 4}]}'
+        )
+        sighting = by_key(parse_reply(raw, KIT))["multimeter"]
+        assert sighting.expiry is None
+        assert sighting.count is None

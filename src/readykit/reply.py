@@ -18,6 +18,7 @@ from __future__ import annotations
 import calendar
 import json
 import re
+from dataclasses import replace
 from datetime import date, datetime
 from typing import Any
 
@@ -36,11 +37,15 @@ _FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
 
 _SCHEMA_HINT = """Reply with JSON only, in exactly this shape:
 
-{"items": [{"key": "<item key>", "presence": "<found|absent|damaged|unreadable>",
+{"kit_present": "<yes|no|unclear>",
+ "items": [{"key": "<item key>", "presence": "<found|absent|damaged|unreadable>",
             "confidence": <0.0-1.0>, "note": "<short observation>",
             "expiry": "<YYYY-MM or YYYY-MM-DD, omit if not required or not legible>",
             "count": <how many you counted, omit if not required or unsure>}]}
 """
+
+_KIT_ESTABLISHED = "yes"
+"""The only `kit_present` value that lets a per-item reading stand."""
 
 
 def build_prompt(manifest: Manifest) -> str:
@@ -51,8 +56,20 @@ def build_prompt(manifest: Manifest) -> str:
     guess, and half of those guesses are `found`.
     """
     lines = [
-        "You are inspecting an equipment kit in the image.",
+        "You are examining an image that may or may not contain an equipment kit.",
         f"Kit specification: {manifest.name}.",
+        "",
+        "FIRST, establish what you are actually looking at. Do not assume the kit",
+        "is there. The image may show a room, a person, a desk, or nothing",
+        "relevant at all. Report this in 'kit_present':",
+        "  yes     - the kit is in view: its tray, case, or the items below",
+        "            laid out together, even if some of them are missing",
+        "  no      - you can see the scene, and this kit is not in it",
+        "  unclear - you cannot tell",
+        "",
+        "If kit_present is anything other than 'yes', report EVERY item as",
+        "'unreadable'. You cannot have seen items belonging to a kit you have",
+        "not established is there.",
         "",
         "For EACH item listed below, report exactly one presence value:",
         "  found      - the item is visibly present and undamaged",
@@ -124,7 +141,45 @@ def parse_reply(raw: str, manifest: Manifest) -> list[Sighting]:
         sighting = _parse_entry(entry, known)
         if sighting is not None:
             sightings.append(sighting)
+
+    if not _kit_established(document):
+        return [_unestablished(sighting) for sighting in sightings]
     return sightings
+
+
+def _kit_established(document: dict[str, Any]) -> bool:
+    """Whether the model said it can actually see the kit.
+
+    A model handed a list of expected items and told it is looking at a kit
+    will pattern-complete one that is not there - observed on this hardware
+    reporting all seven items of a trauma kit as `found` at 0.95+, in three
+    consecutive frames of an empty room. Confidence does not catch it, because
+    the invented readings are confident, and neither does aggregating frames,
+    because the invention is stable across them.
+
+    So the kit itself is treated as the first thing to establish, on the same
+    rule as everything else here: items belonging to a kit nobody has
+    established is present are not evidence of anything.
+
+    A reply that omits the field entirely has not been asked the question -
+    an older model, or one that dropped it - and falls back to the per-item
+    readings rather than failing every inspection outright.
+    """
+    stated = document.get("kit_present")
+    if not isinstance(stated, str):
+        return True
+    return stated.strip().lower() == _KIT_ESTABLISHED
+
+
+def _unestablished(sighting: Sighting) -> Sighting:
+    return replace(
+        sighting,
+        presence=Presence.UNREADABLE,
+        confidence=0.0,
+        note="kit itself not established in frame",
+        expiry=None,
+        count=None,
+    )
 
 
 def _extract_json_object(raw: str) -> dict[str, Any]:

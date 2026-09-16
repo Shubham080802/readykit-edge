@@ -214,10 +214,13 @@ class SimulatedEngine(InferenceEngine):
             )
 
         if scene == OCCLUDED:
+            # A covered tray is the case where the kit itself cannot be
+            # established, not merely its contents - so the scene says so.
             return self._reply(
                 "The tray is obscured; I am unable to assess its contents.",
                 {key: (Presence.UNREADABLE, 0.88) for key in manifest.keys},
                 manifest,
+                kit_present="unclear",
             )
 
         if scene == LOW_CONFIDENCE:
@@ -293,6 +296,7 @@ class SimulatedEngine(InferenceEngine):
         manifest: Manifest,
         expiries: dict[str, date] | None = None,
         counts: dict[str, int] | None = None,
+        kit_present: str = "yes",
     ) -> str:
         """Prose narration followed by a fenced JSON block.
 
@@ -334,7 +338,9 @@ class SimulatedEngine(InferenceEngine):
             if key in dates:
                 entry["expiry"] = dates[key].isoformat()
             items.append(entry)
-        block = json.dumps({"items": items}, indent=2)
+        block = json.dumps(
+            {"kit_present": kit_present, "items": items}, indent=2
+        )
         return f"{narration}\n\n```json\n{block}\n```"
 
     def _wobble(self, confidence: float) -> float:

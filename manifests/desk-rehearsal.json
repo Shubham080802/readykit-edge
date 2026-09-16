@@ -1,0 +1,11 @@
+{
+  "manifest_id": "desk-rehearsal",
+  "name": "Desk Rehearsal Kit",
+  "confidence_floor": 0.6,
+  "hold_seconds": 5.0,
+  "items": [
+    { "key": "mug",        "label": "Coffee Mug",   "severity": "critical" },
+    { "key": "pen",        "label": "Pen",          "severity": "critical" },
+    { "key": "phone",      "label": "Mobile Phone", "severity": "critical" }
+  ]
+}
