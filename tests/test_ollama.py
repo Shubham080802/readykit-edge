@@ -84,13 +84,31 @@ class TestFrameBytes:
     def test_a_scene_name_is_refused_with_a_useful_message(self) -> None:
         """The likely mistake: pointing this at a simulator scene. It cannot
         look at a string, and must say so rather than send one."""
-        with pytest.raises(InferenceError, match="encoded image bytes"):
+        with pytest.raises(InferenceError, match="got a scene name"):
             _image_bytes(Frame(image="complete", digest="d"))
 
     def test_the_refusal_names_the_fix(self) -> None:
         with pytest.raises(InferenceError) as caught:
             _image_bytes(Frame(image="complete", digest="d"))
         assert "--image" in str(caught.value)
+
+    def test_a_camera_array_is_encoded_as_a_jpeg(self) -> None:
+        """An OpenCV camera yields a pixel array, not bytes. This was refused,
+        so `--camera 0 --engine ollama` opened the camera, captured a frame,
+        and resolved every inspection INDETERMINATE on the encoding step -
+        found running the console against a real webcam.
+
+        Skipped where the host extras are not installed, which includes CI.
+        """
+        np = pytest.importorskip("numpy")
+        pytest.importorskip("cv2")
+        pixels = np.zeros((48, 64, 3), dtype=np.uint8)
+        pixels[:, :32] = (0, 128, 255)
+
+        encoded = _image_bytes(Frame(image=pixels, digest="d"))
+
+        assert encoded[:2] == b"\xff\xd8", "not a JPEG start-of-image marker"
+        assert encoded[-2:] == b"\xff\xd9", "not a JPEG end-of-image marker"
 
 
 class TestAgainstARunningServer:

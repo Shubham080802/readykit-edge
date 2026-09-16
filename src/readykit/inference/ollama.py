@@ -174,17 +174,46 @@ class OllamaEngine(InferenceEngine):
 def _image_bytes(frame: Frame) -> bytes:
     """The frame's pixels as encoded image bytes.
 
-    ImageFileSource already yields bytes, which is the path that matters here.
-    A raw numpy array from a camera would need encoding first, and that is a
-    dependency this module deliberately does not take - capture to a JPEG and
-    read it back instead.
+    ImageFileSource and FfmpegCameraSource already yield encoded bytes. An
+    OpenCV CameraSource yields a raw pixel array, which is JPEG-encoded here -
+    the same thing GenieX does before handing a camera frame to its model.
+
+    This used to refuse arrays outright, to keep OpenCV out of this module.
+    That made `--camera 0 --engine ollama` a configuration that could never
+    inspect anything: the camera opened, the frame was captured, and every
+    inspection resolved INDETERMINATE on the encoding step. OpenCV is imported
+    only on that path, so a host feeding still images still does not need it.
     """
     image: Any = frame.image
     if isinstance(image, bytes):
         return image
     if isinstance(image, bytearray | memoryview):
         return bytes(image)
-    raise InferenceError(
-        f"the ollama engine needs encoded image bytes, got {type(image).__name__}. "
-        "Use --image <path> (ImageFileSource), not a scene name or a raw array."
-    )
+    if isinstance(image, str):
+        # A scene name from ScriptedSource. Encoding a string as an image would
+        # send the model nothing to look at and invite it to invent a kit.
+        raise InferenceError(
+            "the ollama engine needs real frames, got a scene name. "
+            "Use --camera, --ffmpeg-camera or --image, or --engine simulated."
+        )
+    return _encode_jpeg(image)
+
+
+def _encode_jpeg(image: Any) -> bytes:
+    try:
+        import cv2
+    except ImportError as exc:
+        raise InferenceError(
+            "opencv-python is needed to encode camera frames for Ollama. "
+            'Install the host extras: pip install -e ".[host]"'
+        ) from exc
+
+    try:
+        ok, buffer = cv2.imencode(
+            ".jpg", image, [int(cv2.IMWRITE_JPEG_QUALITY), 92]
+        )
+    except cv2.error as exc:
+        raise InferenceError(f"could not encode the captured frame: {exc}") from exc
+    if not ok:
+        raise InferenceError("could not encode the captured frame as JPEG")
+    return bytes(buffer.tobytes())
