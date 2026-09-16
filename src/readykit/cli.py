@@ -44,7 +44,16 @@ def _windows_vt_enabled() -> bool:
     try:
         import ctypes
 
-        kernel32 = ctypes.windll.kernel32
+        # `ctypes.windll` exists only on Windows, in the runtime and in the
+        # type stubs alike, so it is fetched by name rather than attribute.
+        # A `type: ignore` would have been the shorter fix and the wrong one:
+        # strict mypy flags an unused ignore, so it would type-check on Linux
+        # and fail on the Snapdragon host this function exists for.
+        windll = getattr(ctypes, "windll", None)
+        if windll is None:
+            return False
+
+        kernel32 = windll.kernel32
         handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
         mode = ctypes.c_uint32()
         if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
