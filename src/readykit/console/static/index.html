@@ -51,6 +51,19 @@
     </div>
   </section>
 
+  <section class="panel camera" id="camera" hidden>
+    <div class="camera__pane">
+      <h2 class="panel__title">Camera <span class="panel__count">live · not recorded</span></h2>
+      <img class="camera__img" id="camera-live" alt="What the camera sees now">
+    </div>
+    <div class="camera__pane">
+      <h2 class="panel__title">What the model judged <span class="panel__count" id="judged-when"></span></h2>
+      <img class="camera__img" id="camera-judged" alt="The frame the last verdict was decided on" hidden>
+      <p class="camera__empty" id="judged-empty">Press Inspect to see the frame the model judges.</p>
+      <ul class="tags" id="judged-tags"></ul>
+    </div>
+  </section>
+
   <div class="grid">
 
     <section class="panel">
@@ -123,6 +136,9 @@
               ><span id="source-input">real frames</span
               >&nbsp;·&nbsp;<span id="source-engine">model</span></span>
         <button class="btn btn--primary" id="run">Inspect</button>
+        <label class="auto" id="auto-wrap" hidden>
+          <input type="checkbox" id="auto"> Auto
+        </label>
       </div>
       <div class="rule" id="scene-description">&nbsp;</div>
     </section>

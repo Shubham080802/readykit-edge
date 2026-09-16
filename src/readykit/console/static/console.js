@@ -410,6 +410,58 @@ function renderSafely(name, render) {
   }
 }
 
+/* The picture the verdict was decided on, with each item's reading beside it.
+ * Reloaded only when a new inspection lands, keyed by its id, so the labels
+ * can never sit under a different picture from the one they describe. */
+let judgedId = null;
+
+function renderJudged(last) {
+  if (!source.live) return;
+  const id = last ? last.inspection_id : null;
+  if (id === judgedId) return;
+  judgedId = id;
+
+  const img = $("camera-judged");
+  const tags = $("judged-tags");
+  tags.innerHTML = "";
+  if (!last) return;
+
+  img.onload = () => { img.hidden = false; $("judged-empty").hidden = true; };
+  img.onerror = () => {
+    img.hidden = true;
+    $("judged-empty").hidden = false;
+    $("judged-empty").textContent = "No picture was captured for this inspection.";
+  };
+  img.src = `/api/inspected.jpg?id=${encodeURIComponent(id)}`;
+  $("judged-when").textContent = last.started_at
+    ? new Date(last.started_at).toLocaleTimeString()
+    : "";
+
+  for (const item of last.items) {
+    const tag = document.createElement("li");
+    tag.className = "tag";
+    tag.dataset.presence = item.presence;
+    const confidence =
+      typeof item.confidence === "number" && item.presence !== "unreported"
+        ? ` ${Math.round(item.confidence * 100)}%`
+        : "";
+    tag.textContent = `${item.label}: ${item.presence}${confidence}`;
+    tags.appendChild(tag);
+  }
+}
+
+/* Live view: fetch the next frame only once the previous one has arrived, so
+ * a slow camera or a busy host never piles up requests. */
+function startLiveView() {
+  const img = $("camera-live");
+  const next = () => setTimeout(() => {
+    img.src = `/api/camera.jpg?t=${Date.now()}`;
+  }, 250);
+  img.onload = next;
+  img.onerror = () => setTimeout(next, 1500);
+  next();
+}
+
 async function refresh() {
   const [state, records] = await Promise.all([
     getJSON("/api/state"),
@@ -418,6 +470,7 @@ async function refresh() {
   renderSafely("verdict", () => renderVerdict(state.last, state.telemetry));
   renderSafely("telemetry", () => renderTelemetry(state.telemetry));
   renderSafely("checklist", () => renderChecklist(state.last));
+  renderSafely("judged", () => renderJudged(state.last));
   renderSafely("blueprint", () => renderBlueprintTally(state.blueprint_tally));
   renderSafely("chain", () => renderChain(state.chain));
   renderSafely("records", () => renderRecords(records.records, state.tally));
@@ -446,6 +499,9 @@ async function runInspection() {
     button.disabled = false;
     button.textContent = "Inspect";
   }
+  /* Auto: start the next look as soon as this one is decided. No fixed
+   * timer - the model's own pace sets the rhythm, so looks never overlap. */
+  if (source.live && $("auto").checked) setTimeout(runInspection, 500);
 }
 
 async function boot() {
@@ -465,6 +521,12 @@ async function boot() {
     $("source-engine").textContent = source.engine;
     $("scene-description").textContent =
       "Inspecting real frames. Point the camera at the kit and press Inspect.";
+    $("camera").hidden = false;
+    $("auto-wrap").hidden = false;
+    $("auto").addEventListener("change", () => {
+      if ($("auto").checked) runInspection();
+    });
+    startLiveView();
   } else {
     const payload = await getJSON("/api/scenes");
     scenes = payload.scenes;

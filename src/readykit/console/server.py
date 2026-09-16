@@ -19,7 +19,7 @@ from typing import Any
 from ..bridge import LoopbackLink, VirtualActuatorNode
 from ..bridge.base import HostLink
 from ..bridge.loopback import Indicator, LatchState
-from ..capture import FrameSource, ScriptedSource
+from ..capture import CaptureError, Frame, FrameSource, ScriptedSource
 from ..domain import Manifest, Verdict
 from ..engine import InspectionEngine
 from ..inference.base import InferenceEngine
@@ -28,6 +28,59 @@ from ..protocol import Command
 from ..recorder import InspectionLog
 
 STATIC = Path(__file__).parent / "static"
+
+
+class _SharedCamera(FrameSource):
+    """One camera handle, shared by the live view and by inspections.
+
+    Two request threads reading one OpenCV capture at once is a race inside
+    the driver, so every read goes through a lock. Reads for an inspection
+    also keep the frame, so the console can show the exact picture the model
+    judged rather than whatever the camera happens to see a minute later.
+
+    Frames are held in memory only and replaced on the next read. Nothing is
+    written to disk: an air-gapped appliance that kept pictures would end up
+    holding an image of every kit it has ever inspected.
+    """
+
+    def __init__(self, source: FrameSource) -> None:
+        self._source = source
+        self._lock = threading.Lock()
+        self.inspected: Frame | None = None
+
+    def read(self) -> Frame:
+        with self._lock:
+            frame = self._source.read()
+        self.inspected = frame
+        return frame
+
+    def peek(self) -> Frame:
+        """A frame for the live view. Not remembered as inspected."""
+        with self._lock:
+            return self._source.read()
+
+    def close(self) -> None:
+        self._source.close()
+
+
+def _jpeg(frame: Frame) -> bytes | None:
+    """A frame as JPEG bytes for the browser, or None if it has no picture.
+
+    A scripted scene is a name, not an image, so there is nothing to show -
+    and drawing a placeholder in its place would suggest a camera that is not
+    there.
+    """
+    image: Any = frame.image
+    if isinstance(image, bytes | bytearray | memoryview):
+        return bytes(image)
+    if isinstance(image, str):
+        return None
+    try:
+        import cv2
+    except ImportError:
+        return None
+    ok, buffer = cv2.imencode(".jpg", image, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+    return bytes(buffer.tobytes()) if ok else None
 
 
 @dataclass
@@ -43,6 +96,7 @@ class ConsoleState:
     node: VirtualActuatorNode | None
     scene: str = "complete"
     last: dict[str, Any] | None = None
+    inspected_jpeg: bytes | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
@@ -67,9 +121,10 @@ def create_app(
     time somebody presses the button.
     """
     live = source_factory is not None or engine_factory is not None
+    camera = _SharedCamera(source_factory()) if source_factory is not None else None
     try:
         from fastapi import FastAPI, HTTPException
-        from fastapi.responses import FileResponse, JSONResponse
+        from fastapi.responses import FileResponse, JSONResponse, Response
     except ImportError as exc:  # pragma: no cover - depends on console extras
         raise RuntimeError(
             "FastAPI is not installed. Install the console extras: "
@@ -84,9 +139,7 @@ def create_app(
     app = FastAPI(title="ReadyKit Edge", docs_url=None, redoc_url=None)
 
     def build_engine(scene: str) -> InspectionEngine:
-        source: FrameSource = (
-            source_factory() if source_factory else ScriptedSource(scene)
-        )
+        source: FrameSource = camera if camera is not None else ScriptedSource(scene)
         engine: InferenceEngine = (
             engine_factory() if engine_factory else SimulatedEngine(seed=None)
         )
@@ -143,6 +196,28 @@ def create_app(
             "engine": engine_label or "simulated model",
         }
 
+    @app.get("/api/camera.jpg")
+    def camera_now() -> Any:
+        """What the camera sees right now, for aiming. Never recorded."""
+        if camera is None:
+            raise HTTPException(status_code=404, detail="no camera on this console")
+        try:
+            image = _jpeg(camera.peek())
+        except CaptureError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        if image is None:
+            raise HTTPException(status_code=404, detail="this input has no picture")
+        return Response(image, media_type="image/jpeg", headers=no_store)
+
+    @app.get("/api/inspected.jpg")
+    def inspected_frame() -> Any:
+        """The exact frame the last verdict was decided on."""
+        with state.lock:
+            image = state.inspected_jpeg
+        if image is None:
+            raise HTTPException(status_code=404, detail="no inspected frame yet")
+        return Response(image, media_type="image/jpeg", headers=no_store)
+
     @app.get("/api/scenes")
     def get_scenes() -> Any:
         # A live console has no scenes to offer. Returning the scripted list
@@ -190,6 +265,17 @@ def create_app(
             engine = build_engine(scene)
             outcome = engine.run_once()
             state.log.append(outcome.record)
+
+            # Only keep the picture if it is provably the frame this record is
+            # about. A stale frame beside a fresh verdict would label one
+            # picture with the findings from another.
+            judged = camera.inspected if camera is not None else None
+            state.inspected_jpeg = (
+                _jpeg(judged)
+                if judged is not None
+                and judged.digest == outcome.record.frame_digest
+                else None
+            )
 
             payload = _serialise(outcome, manifest)
             state.last = payload

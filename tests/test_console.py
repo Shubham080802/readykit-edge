@@ -182,6 +182,58 @@ class TestAConsoleWiredToARealCamera:
         assert client.get("/api/scenes").json()["scenes"]
 
 
+class TestSeeingWhatTheCameraSees:
+    """An operator aiming a camera needs to see what it sees, and a verdict is
+    only checkable if you can see the picture it was decided on."""
+
+    def test_the_live_view_serves_the_camera_frame(
+        self, live_client: fastapi_testclient.TestClient
+    ) -> None:
+        response = live_client.get("/api/camera.jpg")
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/jpeg"
+        assert response.content == b"\x00pixels"
+        assert "no-store" in response.headers["cache-control"]
+
+    def test_a_scripted_console_has_no_camera_to_show(
+        self, client: fastapi_testclient.TestClient
+    ) -> None:
+        """A scene is a name, not a picture. Showing a placeholder image would
+        suggest a camera that is not there."""
+        assert client.get("/api/camera.jpg").status_code == 404
+
+    def test_there_is_no_judged_frame_before_an_inspection(
+        self, live_client: fastapi_testclient.TestClient
+    ) -> None:
+        assert live_client.get("/api/inspected.jpg").status_code == 404
+
+    def test_the_judged_frame_is_the_one_the_verdict_was_decided_on(
+        self, live_client: fastapi_testclient.TestClient
+    ) -> None:
+        body = live_client.post("/api/inspect", json={}).json()
+        response = live_client.get("/api/inspected.jpg")
+        assert response.status_code == 200
+        assert response.content == b"\x00pixels"
+        assert body["frame_digest"] == "cafe1234"
+
+    def test_looking_through_the_live_view_is_not_an_inspection(
+        self, live_client: fastapi_testclient.TestClient
+    ) -> None:
+        """Aiming the camera must not produce a "judged" picture that no model
+        ever judged."""
+        for _ in range(3):
+            live_client.get("/api/camera.jpg")
+        assert live_client.get("/api/inspected.jpg").status_code == 404
+
+    def test_the_camera_is_still_opened_once_with_the_live_view_running(
+        self, live_client: fastapi_testclient.TestClient
+    ) -> None:
+        for _ in range(3):
+            live_client.get("/api/camera.jpg")
+            live_client.post("/api/inspect", json={})
+        assert _CountingCamera.opens == 1
+
+
 class TestStaticSurface:
     def test_index_is_served(
         self, client: fastapi_testclient.TestClient

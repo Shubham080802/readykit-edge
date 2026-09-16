@@ -8,6 +8,11 @@
  * Token names below map one-to-one onto that document.
  */
 
+/* `hidden` must win over any class that sets display. Without this, a
+ * `.airgap { display: inline-flex }` pill marked hidden still renders - which
+ * is how a scripted console would show a "live camera" badge it does not have. */
+[hidden] { display: none !important; }
+
 :root {
   /* Surface ladder - canvas through surface-4, carrying hierarchy with no shadow */
   --canvas: #010102;
@@ -698,4 +703,70 @@ body { min-height: 100vh; }
 
 @media (max-width: 560px) {
   .compare__signal { margin-left: 0; }
+}
+
+/* ------------------------------------------------------------------ camera */
+
+.camera {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.camera__img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: contain;
+  background: var(--canvas);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+}
+
+.camera__empty {
+  aspect-ratio: 4 / 3;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: var(--space-md);
+  text-align: center;
+  color: var(--ink-subtle);
+  border: 1px dashed var(--hairline-strong);
+  border-radius: var(--radius-md);
+}
+
+/* One tag per required item, coloured by what the model reported - not by
+ * the verdict, which the banner already carries. */
+.tags {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: var(--space-xs) 0 0;
+  padding: 0;
+}
+
+.tag {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 9999px;
+  border: 1px solid var(--hairline-strong);
+  color: var(--ink-muted);
+}
+
+.tag[data-presence="found"] { border-color: color-mix(in srgb, var(--verdict-pass) 55%, transparent); }
+.tag[data-presence="absent"],
+.tag[data-presence="damaged"] { border-color: color-mix(in srgb, var(--verdict-fail) 55%, transparent); }
+.tag[data-presence="unreadable"],
+.tag[data-presence="unreported"] { border-color: color-mix(in srgb, var(--verdict-hold) 55%, transparent); }
+
+.auto {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ink-subtle);
+  cursor: pointer;
 }
