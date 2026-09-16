@@ -553,6 +553,8 @@ body { min-height: 100vh; }
 .records .c-reason { color: var(--ink-muted); }
 
 .tag {
+  max-width: 100%;
+  overflow-wrap: anywhere;
   font-family: var(--mono);
   font-size: 11px;
   letter-spacing: 0.4px;
@@ -748,6 +750,8 @@ body { min-height: 100vh; }
 }
 
 .tag {
+  max-width: 100%;
+  overflow-wrap: anywhere;
   font-family: var(--mono);
   font-size: 12px;
   padding: 3px 8px;

@@ -445,7 +445,11 @@ function renderJudged(last) {
        * reading was set aside. Show its words, marked as not counted -
        * "unreadable 0%" alone hides that it recognised the thing at all. */
       tag.dataset.presence = "set-aside";
-      tag.textContent = `${item.label}: model said ${item.model_said} · not counted`;
+      /* "not counted" only where there was something to count. */
+      tag.textContent =
+        item.model_said === "unreadable"
+          ? `${item.label}: unreadable`
+          : `${item.label}: ${item.model_said} · not counted`;
       tag.title = "Not counted: the model said no kit is in view";
     } else {
       tag.dataset.presence = item.presence;
