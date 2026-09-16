@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "api/index.py": {
+      "includeFiles": [
+        "manifests/**",
+        "src/readykit/console/static/**"
+      ]
+    }
+  }
+}
