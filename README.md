@@ -254,6 +254,81 @@ beside a real one. For the same reason `--camera` without a real model is
 refused up front rather than one button press later: the simulated engine
 answers from a scene name and never looks at the frame.
 
+### Seeing what it sees
+
+A live console shows the camera, and reads left to right:
+
+**Live** → **Image captured** → *arrow* → **Recognised**
+
+- **Live** is what the camera sees now, for aiming. It is never recorded.
+- **Image captured** is the exact frame the verdict is decided on. It is only
+  shown when its digest matches the Inspection Record, so a picture from one
+  look can never sit beside the findings from another.
+- The **arrow** runs while the model works and stops when it answers.
+- **Recognised** names what the model found, in large type, beside a mark that
+  says what the verdict says — ✓ PASS, ✗ FAIL, ? INDETERMINATE, never a tick
+  on a kit that did not pass — with each item's reading underneath.
+
+The name is the model's own reading, including one the kit check set aside:
+hold a pen up to the camera and the card says **Pen**, the row says "found ·
+not counted", and the verdict stays INDETERMINATE because no kit is laid out.
+What is shown and what is decided are kept apart on purpose.
+
+### Inspecting with the browser's camera
+
+On a Mac, a server only gets the camera if it was started from an app that
+already has camera permission — in practice, a Terminal opened by hand every
+time. With `--browser-camera` the page opens the camera instead, using the
+permission the browser already holds, so the console can be started from
+anywhere:
+
+```bash
+.venv/bin/readykit console --manifest manifests/desk-rehearsal.json \
+  --browser-camera --engine ollama --model qwen2.5vl:7b
+```
+
+Open it in Chrome and:
+
+- **Inspect** turns the camera on, counts down six seconds on the live view so
+  you can put the items down and take your hand away, then captures.
+- **Auto** watches the live view and inspects once it has held still for six
+  seconds. After a look it waits for the view to change, so a scene left alone
+  is not inspected over and over.
+- **Reset** switches the camera off and clears both frames. Pressed during the
+  countdown, it cancels it.
+
+**This is a rehearsal mode.** A page that uploads frames can be handed any
+picture, so never use it for a latch guarding a real kit — the Inspection Host
+should read its own fixed camera with `--camera`. Without the flag the upload
+endpoint does not exist.
+
+### How long a look takes
+
+Measured with Ollama `qwen2.5vl:7b` on an Apple M-series Mac. Reading the
+frame, not writing the answer, is most of the cost:
+
+| Change | Per look |
+|---|---|
+| Full-HD frame sent as-is | ~39s |
+| Frame capped at 960px — smaller buys nothing, Ollama resizes every image to the same ~1,040 tokens | ~19s |
+| Instructions sent first, as a system message, so Ollama reuses them between looks | ~15s |
+
+So a result lands about 21 seconds after pressing Inspect: six seconds of
+countdown, then the model. On the Snapdragon's Hexagon NPU the project measured
+13.6s of decode for a seven-item manifest.
+
+### Keeping it running on a Mac
+
+To have the console start at login, point a LaunchAgent in
+`~/Library/LaunchAgents` at `.venv/bin/readykit console … --browser-camera`
+with `RunAtLoad` and `KeepAlive`. Two things bite:
+
+- **Keep the checkout out of `~/Documents`, `~/Desktop` and `~/Downloads`.**
+  macOS does not let a login item read those folders; the agent fails with
+  `Operation not permitted` and exit code 126.
+- **Ollama must be up first.** The console refuses to start without its model,
+  so `KeepAlive` retries until Ollama is listening. Open `Ollama.app` at login.
+
 It binds to loopback deliberately: this device releases a physical latch on
 command, and binding it to a routable interface would turn a local view into a
 remote actuator.
@@ -325,15 +400,17 @@ the handout.
 
 Runs end to end in simulation; every fail-closed path is covered by tests.
 
-**Not yet run on the hardware.** The GenieX and pyserial backends are written
-against their documented interfaces, and the C firmware parser is cross-checked
-against the Python encoder by a test that compiles it — but nothing here has
-been flashed. The sketch is compiled on every CI run under five different pin
-configurations, and the indicator logic is asserted rather than eyeballed, so
-what remains unproven is the STM32U585 toolchain and the board's own macros,
-not the code. Treat the on-device behaviour as unproven until the
-[bring-up checklist](docs/deployment.md#bring-up-checklist) has been worked
-through.
+**Run on the hardware, not yet fully signed off.** The firmware has been
+flashed, the Host Link round-trips real `PING` and `RELEASE` commands with real
+acknowledgements, and a real GenieX/Qwen3-VL-4B inference on the Hexagon NPU
+has driven a real latch release end to end. The
+[bring-up checklist](docs/deployment.md#bring-up-checklist) is only partly
+worked through: resting state and the `PASS` and `INDETERMINATE` command paths
+are confirmed; the watchdog and integrity items are still open. Treat those as
+unproven until they are.
+
+The operator console has also been run against a real webcam through Ollama on
+a Mac, with the host camera and with `--browser-camera`.
 
 That checklist is the point of building the simulator first. Every item on it
 is a behaviour already pinned by a test, so bench time goes on confirming the
