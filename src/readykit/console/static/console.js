@@ -26,7 +26,12 @@ const $ = (id) => document.getElementById(id);
 
 let manifest = null;
 let scenes = [];
-let source = { live: false, source: "scripted scenes", engine: "simulated model" };
+let source = {
+  live: false,
+  demo_camera: false,
+  source: "scripted scenes",
+  engine: "simulated model",
+};
 let busy = false;
 
 async function getJSON(url, options) {
@@ -892,6 +897,21 @@ async function boot() {
     }
     select.addEventListener("change", describeScene);
     describeScene();
+
+    if (source.demo_camera) {
+      /* A Vercel demo has no host camera. Show an animated stand-in, labelled
+       * as such, while preserving the scene picker that drives its verdicts. */
+      $("camera").hidden = false;
+      $("camera-live").hidden = true;
+      $("live-empty").hidden = true;
+      $("demo-camera").hidden = false;
+      $("source-live").hidden = false;
+      $("source-live").title = "This is an animated simulated feed, not a camera";
+      $("source-input").textContent = source.source;
+      $("source-engine").textContent = source.engine;
+      document.querySelector(".camera__hint").textContent =
+        "Animated demonstration feed — choose a simulator scene, then inspect.";
+    }
   }
 
   $("run").addEventListener("click", runInspection);

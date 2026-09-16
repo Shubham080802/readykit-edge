@@ -43,6 +43,21 @@
       <div class="camera__frame">
         <img class="camera__img" id="camera-live" alt="What the camera sees now">
         <video class="camera__img" id="camera-video" autoplay playsinline muted hidden></video>
+        <div class="demo-camera" id="demo-camera" role="img"
+             aria-label="Animated simulated camera feed showing an equipment kit" hidden>
+          <span class="demo-camera__label">SIMULATED FEED</span>
+          <span class="demo-camera__status">CAM 01 · LIVE</span>
+          <div class="demo-camera__grid" aria-hidden="true"></div>
+          <div class="demo-camera__kit" aria-hidden="true">
+            <i class="demo-camera__item demo-camera__item--case"></i>
+            <i class="demo-camera__item demo-camera__item--seal"></i>
+            <i class="demo-camera__item demo-camera__item--shears"></i>
+            <i class="demo-camera__item demo-camera__item--gauze"></i>
+          </div>
+          <span class="demo-camera__sweep" aria-hidden="true"></span>
+          <span class="demo-camera__corner demo-camera__corner--tl" aria-hidden="true"></span>
+          <span class="demo-camera__corner demo-camera__corner--br" aria-hidden="true"></span>
+        </div>
         <p class="camera__empty" id="live-empty" hidden>The camera turns on when you press Inspect or tick Auto.</p>
         <div class="hold" id="hold" hidden>
           <svg class="hold__ring" viewBox="0 0 40 40" aria-hidden="true">

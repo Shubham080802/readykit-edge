@@ -114,6 +114,19 @@ def live_client(
     return fastapi_testclient.TestClient(app)
 
 
+@pytest.fixture
+def demo_camera_client(
+    tmp_path: Path, node: VirtualActuatorNode
+) -> fastapi_testclient.TestClient:
+    app = create_app(
+        manifest=KIT,
+        log_path=tmp_path / "inspections.jsonl",
+        link=LoopbackLink(node),
+        demo_camera=True,
+    )
+    return fastapi_testclient.TestClient(app)
+
+
 class TestAConsoleWiredToARealCamera:
     """The console had no way to inspect anything real: `create_app` took
     `source_factory` and `engine_factory`, and the CLI never passed either, so
@@ -180,6 +193,18 @@ class TestAConsoleWiredToARealCamera:
         body = client.post("/api/inspect", json={"scene": "empty"}).json()
         assert body["verdict"] == "fail"
         assert client.get("/api/scenes").json()["scenes"]
+
+
+class TestDemoCamera:
+    def test_the_demo_feed_is_explicit_and_keeps_scripted_scenes(
+        self, demo_camera_client: fastapi_testclient.TestClient
+    ) -> None:
+        source = demo_camera_client.get("/api/source").json()
+        assert source["live"] is False
+        assert source["browser_camera"] is False
+        assert source["demo_camera"] is True
+        assert source["source"] == "simulated camera feed"
+        assert demo_camera_client.get("/api/scenes").json()["scenes"]
 
 
 class TestSeeingWhatTheCameraSees:

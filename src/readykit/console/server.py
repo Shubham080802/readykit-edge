@@ -129,6 +129,7 @@ def create_app(
     source_label: str = "",
     engine_label: str = "",
     browser_camera: bool = False,
+    demo_camera: bool = False,
 ) -> Any:
     """Build the FastAPI app.
 
@@ -141,6 +142,11 @@ def create_app(
     one that returns the same camera rather than opening the device again every
     time somebody presses the button.
     """
+    if demo_camera and (
+        source_factory is not None or engine_factory is not None or browser_camera
+    ):
+        raise ValueError("a demo camera cannot be combined with a real camera or engine")
+
     live = source_factory is not None or engine_factory is not None or browser_camera
     camera = _SharedCamera(source_factory()) if source_factory is not None else None
     try:
@@ -221,7 +227,10 @@ def create_app(
         return {
             "live": live,
             "browser_camera": browser_camera,
-            "source": source_label or "scripted scenes",
+            "demo_camera": demo_camera,
+            "source": source_label or (
+                "simulated camera feed" if demo_camera else "scripted scenes"
+            ),
             "engine": engine_label or "simulated model",
         }
 

@@ -1,7 +1,7 @@
 """Vercel entry point for the browser-safe ReadyKit Edge demonstration.
 
-The deployed console always uses the project's scripted scenes and simulated
-actuator. It deliberately has no serial-port or hardware configuration.
+The deployed console uses scripted scenes, an animated simulated camera feed,
+and a virtual actuator. It deliberately has no hardware configuration.
 """
 
 from __future__ import annotations
@@ -25,4 +25,5 @@ app = console.create_app(
     manifest=manifest,
     log_path=Path("/tmp/readykit-inspections.jsonl"),
     link=bridge.open_link("loopback"),
+    demo_camera=True,
 )
